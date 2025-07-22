@@ -1,0 +1,45 @@
+# ===============================
+# Node.js
+# ===============================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# ===============================
+# Ambiente e Configurações
+# ===============================
+.env
+*.env
+
+# ===============================
+# WhatsApp Auth
+# ===============================
+.wwebjs_auth/
+.wwebjs_cache/
+
+# ===============================
+# Banco de Dados
+# ===============================
+*.db
+*.sqlite
+
+# ===============================
+# Logs
+# ===============================
+logs
+*.log
+*.gz
+
+# ===============================
+# Sistema Operacional
+# ===============================
+.DS_Store
+Thumbs.db
+
+# ===============================
+# Arquivos Sensíveis (Google API)
+# ===============================
+credentials.json
+token.json

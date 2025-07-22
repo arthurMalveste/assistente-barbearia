@@ -1,0 +1,53 @@
+const express = require('express');
+const sqlite3 = require('sqlite3').verbose();
+const bodyParser = require('body-parser');
+const cors = require('cors');
+
+const app = express();
+const port = 3000;
+
+app.use(cors());
+app.use(bodyParser.json());
+
+// Conectar ao banco
+const db = new sqlite3.Database('./barbearia.db', (err) => {
+    if (err) console.error('Erro ao conectar ao banco:', err);
+    else console.log('✅ Banco conectado com sucesso.');
+});
+
+// Listar barbeiros
+app.get('/barbers', (req, res) => {
+    db.all('SELECT * FROM barbers', [], (err, rows) => {
+        if (err) res.status(500).json({ error: err.message });
+        else res.json(rows);
+    });
+});
+
+// Listar agendamentos
+app.get('/appointments', (req, res) => {
+    db.all('SELECT * FROM appointments', [], (err, rows) => {
+        if (err) res.status(500).json({ error: err.message });
+        else res.json(rows);
+    });
+});
+
+// Criar novo agendamento
+app.post('/appointments', (req, res) => {
+    const { barber_id, cliente_nome, cliente_numero, data_hora } = req.body;
+    if (!barber_id || !cliente_nome || !cliente_numero || !data_hora) {
+        return res.status(400).json({ error: 'Todos os campos são obrigatórios.' });
+    }
+    db.run(
+        'INSERT INTO appointments (barber_id, cliente_nome, cliente_numero, data_hora) VALUES (?, ?, ?, ?)',
+        [barber_id, cliente_nome, cliente_numero, data_hora],
+        function (err) {
+            if (err) res.status(500).json({ error: err.message });
+            else res.json({ id: this.lastID, message: 'Agendamento criado com sucesso.' });
+        }
+    );
+});
+
+// Iniciar servidor
+app.listen(port, () => {
+    console.log(`🌐 Servidor rodando em http://localhost:${port}`);
+});
