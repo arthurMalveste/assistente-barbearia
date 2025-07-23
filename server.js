@@ -75,4 +75,5 @@ app.delete('/appointments/:id', (req, res) => {
 // Iniciar servidor
 app.listen(port, () => {
     console.log(`🌐 Servidor rodando em http://localhost:${port}`);
+
 });
