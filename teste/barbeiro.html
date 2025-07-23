@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Painel do Barbeiro</title>
+  <link rel="stylesheet" href="style.css" />
+  
+</head>
+<body>
+
+  <div id="login-barbeiro">
+    <h2>Login Barbeiro</h2>
+    <form id="form-login-barbeiro">
+      <label for="senha">Senha:</label>
+      <input type="password" id="senha" required />
+      <button type="submit">Entrar</button>
+    </form>
+  </div>
+
+  <div id="painel-barbeiro" style="display:none;">
+    <h1>Agendamentos do Dia</h1>
+
+    <label for="data-filtro">Data:</label>
+    <input type="date" id="data-filtro" />
+
+    <label for="filtro-barbeiro">Barbeiro:</label>
+    <select id="filtro-barbeiro">
+      <option value="">Todos</option>
+      <option>Guilherme</option>
+      <option>Kayky</option>
+      <option>Icaro</option>
+      <option>João Pedro</option>
+      <option>Diego</option>
+      <option>Flavio</option>
+    </select>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Nome</th>
+          <th>Telefone</th>
+          <th>Barbeiro</th>
+          <th>Data</th>
+          <th>Horário</th>
+          <th>Ações</th>
+        </tr>
+      </thead>
+      <tbody id="corpo-tabela"></tbody>
+    </table>
+    <button id="btn-logout">Sair</button>
+  </div>
+
+  <script>
+    const senhaCorreta = "1234";
+    const loginBarbeiroDiv = document.getElementById("login-barbeiro");
+    const painelBarbeiroDiv = document.getElementById("painel-barbeiro");
+    const formLogin = document.getElementById("form-login-barbeiro");
+    const corpoTabela = document.getElementById("corpo-tabela");
+    const dataFiltro = document.getElementById("data-filtro");
+    const filtroBarbeiro = document.getElementById("filtro-barbeiro");
+    const btnLogout = document.getElementById("btn-logout");
+
+    if (localStorage.getItem("barbeiroLogado") === "true") {
+      mostrarPainel();
+    }
+
+    formLogin.addEventListener("submit", e => {
+      e.preventDefault();
+      const senha = document.getElementById("senha").value;
+
+      if (senha === senhaCorreta) {
+        localStorage.setItem("barbeiroLogado", "true");
+        mostrarPainel();
+      } else {
+        alert("Senha incorreta!");
+      }
+    });
+
+    btnLogout.addEventListener("click", () => {
+      localStorage.removeItem("barbeiroLogado");
+      location.reload();
+    });
+
+    dataFiltro.addEventListener("change", mostrarAgendamentos);
+    filtroBarbeiro.addEventListener("change", mostrarAgendamentos);
+
+    function mostrarPainel() {
+      loginBarbeiroDiv.style.display = "none";
+      painelBarbeiroDiv.style.display = "block";
+
+      const hoje = new Date().toISOString().split("T")[0];
+      dataFiltro.value = hoje;
+      filtroBarbeiro.value = "";
+
+      mostrarAgendamentos();
+    }
+
+    function mostrarAgendamentos() {
+      const reservas = JSON.parse(localStorage.getItem("reservas")) || [];
+      const dataSelecionada = dataFiltro.value;
+      const barbeiroSelecionado = filtroBarbeiro.value;
+      corpoTabela.innerHTML = "";
+
+      reservas.forEach((r, i) => {
+        if (
+          r.data === dataSelecionada &&
+          (barbeiroSelecionado === "" || r.barbeiro === barbeiroSelecionado)
+        ) {
+          const linha = document.createElement("tr");
+          linha.innerHTML = `
+            <td>${r.nome}</td>
+            <td>${r.telefone}</td>
+            <td>${r.barbeiro}</td>
+            <td>${r.data}</td>
+            <td>${r.horario}</td>
+            <td><button onclick="cancelarReserva(${i})">Cancelar</button></td>
+          `;
+          corpoTabela.appendChild(linha);
+        }
+      });
+    }
+
+    function cancelarReserva(index) {
+      if (confirm("Deseja cancelar este agendamento?")) {
+        const reservas = JSON.parse(localStorage.getItem("reservas")) || [];
+        reservas.splice(index, 1);
+        localStorage.setItem("reservas", JSON.stringify(reservas));
+        mostrarAgendamentos();
+      }
+    }
+  </script>
+</body>
+</html>

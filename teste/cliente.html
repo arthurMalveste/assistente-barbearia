@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agendamento - Cliente</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>Agende seu Horário</h1>
+
+  <div id="boas-vindas"></div>
+
+  <form id="form-agendamento">
+    <label for="barbeiro">Barbeiro</label>
+    <select id="barbeiro" required>
+      <option value="">Selecione</option>
+      <option>Guilherme</option>
+      <option>João Pedro</option>
+      <option>Kayky</option>
+      <option>Diego</option>
+      <option>Icaro</option>
+      <option>Flavio</option>
+    </select>
+
+    <label for="data">Data</label>
+    <input type="date" id="data" required>
+
+    <label for="horario">Horário</label>
+    <select id="horario" required></select>
+
+    <button type="submit">Reservar</button>
+  </form>
+
+  <div class="mensagem" id="mensagem"></div>
+
+  <div class="agendamentos">
+    <h2>Meus Agendamentos</h2>
+    <table id="tabela-agendamentos">
+      <thead>
+        <tr>
+          <th>Barbeiro</th>
+          <th>Data</th>
+          <th>Horário</th>
+          <th>Ações</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <script>
+    const horariosDisponiveis = [
+      "08:00","08:45", "09:00","09:45", "10:00","10:45", "11:00","11:45", "12:00","12:45",
+      "13:00", "13:45","14:00","14:45", "15:00","15:45", "16:00", "16:45","17:00","17:45",
+      "18:00","18:45", "19:00","19:45", "20:00"
+    ];
+    const feriados = ["01-01", "07-09", "12-10", "15-11", "25-12"];
+
+    const cliente = JSON.parse(localStorage.getItem("clienteLogado"));
+    const boasVindas = document.getElementById("boas-vindas");
+    const dataInput = document.getElementById("data");
+    const horarioSelect = document.getElementById("horario");
+    const tabela = document.querySelector("#tabela-agendamentos tbody");
+    const mensagem = document.getElementById("mensagem");
+
+    if (!cliente) {
+      alert("Você precisa estar logado.");
+      window.location.href = "login.html";
+    } else {
+      boasVindas.innerText = `Bem-vindo(a), ${cliente.nome}!`;
+    }
+
+    dataInput.addEventListener("change", atualizarHorarios);
+    document.getElementById("barbeiro").addEventListener("change", atualizarHorarios);
+
+    function atualizarHorarios() {
+      const data = dataInput.value;
+      const barbeiro = document.getElementById("barbeiro").value;
+      horarioSelect.innerHTML = "";
+
+      const dia = new Date(data);
+      const diaSemana = dia.getDay();
+      const hojeFormatado = data.split("-").slice(1).join("-");
+
+      if (diaSemana === 1 || feriados.includes(hojeFormatado)) {
+        horarioSelect.innerHTML = '<option value="">Indisponível</option>';
+        return;
+      }
+
+      const reservas = JSON.parse(localStorage.getItem("reservas")) || [];
+      const ocupados = reservas
+        .filter(r => r.data === data && r.barbeiro === barbeiro)
+        .map(r => r.horario);
+
+      horariosDisponiveis.forEach(h => {
+        if (!ocupados.includes(h)) {
+          const opt = document.createElement("option");
+          opt.value = opt.text = h;
+          horarioSelect.appendChild(opt);
+        }
+      });
+
+      if (!horarioSelect.children.length) {
+        horarioSelect.innerHTML = '<option value="">Nenhum horário disponível</option>';
+      }
+    }
+
+    document.getElementById("form-agendamento").addEventListener("submit", function (e) {
+      e.preventDefault();
+
+      const barbeiro = document.getElementById("barbeiro").value;
+      const data = dataInput.value;
+      const horario = horarioSelect.value;
+
+      if (!horario) {
+        alert("Por favor, selecione um horário válido.");
+        return;
+      }
+
+      const novaReserva = {
+        nome: cliente.nome,
+        telefone: cliente.telefone,
+        barbeiro,
+        data,
+        horario
+      };
+
+      const reservas = JSON.parse(localStorage.getItem("reservas")) || [];
+      reservas.push(novaReserva);
+      localStorage.setItem("reservas", JSON.stringify(reservas));
+
+      mensagem.innerText = `Reserva confirmada para ${cliente.nome} com ${barbeiro} no dia ${data} às ${horario}`;
+      setTimeout(() => mensagem.innerText = "", 5000);
+      this.reset();
+      atualizarHorarios();
+      listarAgendamentos();
+    });
+
+    function listarAgendamentos() {
+      const reservas = JSON.parse(localStorage.getItem("reservas")) || [];
+      tabela.innerHTML = "";
+
+      reservas.forEach((r, i) => {
+        if (r.nome === cliente.nome && r.telefone === cliente.telefone) {
+          const linha = document.createElement("tr");
+          linha.innerHTML = `
+            <td>${r.barbeiro}</td>
+            <td>${r.data}</td>
+            <td>${r.horario}</td>
+            <td><button onclick="cancelar(${i})">Cancelar</button></td>
+          `;
+          tabela.appendChild(linha);
+        }
+      });
+    }
+
+    function cancelar(index) {
+      const reservas = JSON.parse(localStorage.getItem("reservas")) || [];
+      if (confirm("Deseja cancelar este agendamento?")) {
+        reservas.splice(index, 1);
+        localStorage.setItem("reservas", JSON.stringify(reservas));
+        listarAgendamentos();
+        atualizarHorarios();
+      }
+    }
+
+    // Inicializa
+    listarAgendamentos();
+  </script>
+</body>
+</html>
