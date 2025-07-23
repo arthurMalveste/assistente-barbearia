@@ -47,6 +47,31 @@ app.post('/appointments', (req, res) => {
     );
 });
 
+// Remarcar agendamento
+app.put('/appointments/:id', (req, res) => {
+    const { data_hora } = req.body;
+    const id = req.params.id;
+    if (!data_hora) return res.status(400).json({ error: 'Nova data/hora obrigatória.' });
+
+    db.run(
+        'UPDATE appointments SET data_hora = ? WHERE id = ?',
+        [data_hora, id],
+        function (err) {
+            if (err) res.status(500).json({ error: err.message });
+            else res.json({ message: 'Agendamento remarcado com sucesso.' });
+        }
+    );
+});
+
+// Cancelar agendamento
+app.delete('/appointments/:id', (req, res) => {
+    const id = req.params.id;
+    db.run('DELETE FROM appointments WHERE id = ?', [id], function (err) {
+        if (err) res.status(500).json({ error: err.message });
+        else res.json({ message: 'Agendamento cancelado com sucesso.' });
+    });
+});
+
 // Iniciar servidor
 app.listen(port, () => {
     console.log(`🌐 Servidor rodando em http://localhost:${port}`);
