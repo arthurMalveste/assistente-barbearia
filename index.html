@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema da Barbearia</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <nav>
+        <a href="#" onclick="loadPage('qrcode.html')">📷 QR Code</a>
+        <a href="#" onclick="loadPage('calendar.html')">📅 Calendário</a>
+        <a href="#" onclick="loadPage('barbers.html')">💈 Gerenciar Barbeiros</a>
+    </nav>
+    <iframe id="content" src="calendar.html"></iframe>
+    <script>
+        function loadPage(page) {
+            document.getElementById('content').src = page;
+        }
+    </script>
+</body>
+</html>
