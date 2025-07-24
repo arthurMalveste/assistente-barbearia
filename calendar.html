@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calendário - Barbearia</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.css">
+    <link rel="stylesheet" href="css/calendar.css">
+</head>
+<body>
+    <div class="calendar-container">
+        <h2>📅 Agenda da Barbearia</h2>
+        <div class="filter-container">
+    <label for="barberFilter">Filtrar por barbeiro:</label>
+    <select id="barberFilter">
+        <option value="">Todos</option>
+    </select>
+</div>
+<div id="calendar"></div>
+
+<!-- Modal para detalhes -->
+<div id="modal" class="modal">
+    <div class="modal-content">
+        <span class="close-btn" id="closeModal">&times;</span>
+        <h3 id="modalTitle"></h3>
+        <p id="modalDate"></p>
+        <button id="cancelBtn">❌ Cancelar agendamento</button>
+    </div>
+</div>
+
+        <div id="calendar"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
+    <script src="js/calendar.js"></script>
+</body>
+</html>
