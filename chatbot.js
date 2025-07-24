@@ -143,9 +143,15 @@ client.on('message', async msg => {
         const date = moment(`${year}-${month}-${day}`, 'YYYY-MM-DD');
 
         if (!date.isValid()) {
-            await msg.reply('❌ Data inválida. Tente novamente.');
-            return;
-        }
+    await msg.reply('❌ Data inválida. Tente novamente.');
+    return;
+}
+
+if (date.isBefore(moment(), 'day')) {
+    await msg.reply('❌ Não é possível agendar para datas passadas. Escolha uma data futura.');
+    return;
+}
+
 
         state.date = date.format('YYYY-MM-DD');
         const times = await getAvailableTimes(state.barber_id, state.date);
@@ -212,14 +218,18 @@ client.on('message', async msg => {
             }
 
             state.appointments = appointments;
-            state.step = text === '1' ? 'reschedule_select' : 'cancel_select';
+state.step = text === '1' ? 'reschedule_select' : 'cancel_select';
 
-            let list = 'Seus agendamentos:\n';
-            appointments.forEach((a, i) => {
-                list += `${i + 1} - Barbeiro ${a.barber_id} em ${moment(a.data_hora).format('DD/MM HH:mm')}\n`;
-            });
-            list += '0 - 🔙 Voltar';
-            await msg.reply(list);
+const barbers = await getBarbers();
+
+let list = 'Seus agendamentos:\n';
+appointments.forEach((a, i) => {
+    const barber = barbers.find(b => b.id === a.barber_id);
+    const barberName = barber ? barber.nome : `ID ${a.barber_id}`;
+    list += `${i + 1} - ${barberName} em ${moment(a.data_hora).format('DD/MM HH:mm')}\n`;
+});
+list += '0 - 🔙 Voltar';
+await msg.reply(list);
             return;
         }
     }
@@ -283,9 +293,15 @@ client.on('message', async msg => {
         const year = moment().year();
         const date = moment(`${year}-${month}-${day}`, 'YYYY-MM-DD');
         if (!date.isValid()) {
-            await msg.reply('❌ Data inválida. Tente novamente.');
-            return;
-        }
+    await msg.reply('❌ Data inválida. Tente novamente.');
+    return;
+}
+
+if (date.isBefore(moment(), 'day')) {
+    await msg.reply('❌ Não é possível agendar para datas passadas. Escolha uma data futura.');
+    return;
+}
+
 
         state.date = date.format('YYYY-MM-DD');
         const times = await getAvailableTimes(state.barber_id, state.date);

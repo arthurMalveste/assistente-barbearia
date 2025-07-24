@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Painel Administrativo do Barbeiro</title>
+<style>
+  body { font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: auto; }
+  h1, h2 { text-align: center; }
+  label, input, select, button { display: block; width: 100%; margin: 8px 0; padding: 8px; }
+  ul { padding-left: 0; list-style: none; }
+  li { background: #f0f0f0; margin: 6px 0; padding: 8px; border-radius: 4px; cursor: pointer; }
+  button.cancel { background: #e74c3c; color: white; border: none; cursor: pointer; margin-left: 10px; }
+  #back-btn { margin-top: 15px; }
+</style>
+</head>
+<body>
+
+<h1>Painel Administrativo da Barbearia</h1>
+
+<div id="barber-selection">
+  <h2>Selecione seu nome:</h2>
+  <ul id="barbers-list">Carregando barbeiros...</ul>
+</div>
+
+<div id="agenda" style="display:none;">
+  <button id="back-btn">⬅️ Trocar Barbeiro</button>
+  <h2 id="barber-name"></h2>
+
+  <label for="date">Selecione a data:</label>
+  <input type="date" id="date" />
+
+  <h3>Agendamentos do dia</h3>
+  <ul id="appointments-list"></ul>
+
+  <h3>Adicionar agendamento</h3>
+  <label>Nome do cliente:</label>
+  <input type="text" id="client-name" placeholder="Nome do cliente" />
+  <label>Telefone do cliente:</label>
+  <input type="text" id="client-phone" placeholder="Telefone do cliente" />
+  <label>Horário:</label>
+  <select id="time-select"></select>
+  <button id="add-appointment-btn">Adicionar</button>
+</div>
+
+<script>
+  const apiBase = 'http://localhost:3000';
+
+  const barberSelectionDiv = document.getElementById('barber-selection');
+  const barbersList = document.getElementById('barbers-list');
+
+  const agendaDiv = document.getElementById('agenda');
+  const barberNameH2 = document.getElementById('barber-name');
+  const dateInput = document.getElementById('date');
+  const appointmentsList = document.getElementById('appointments-list');
+  const clientNameInput = document.getElementById('client-name');
+  const clientPhoneInput = document.getElementById('client-phone');
+  const timeSelect = document.getElementById('time-select');
+  const addButton = document.getElementById('add-appointment-btn');
+  const backBtn = document.getElementById('back-btn');
+
+  let selectedBarber = null;
+
+  // Carregar barbeiros da API e mostrar para seleção
+  async function loadBarbers() {
+    try {
+      const res = await fetch(`${apiBase}/barbers`);
+      const barbers = await res.json();
+      barbersList.innerHTML = '';
+      barbers.forEach(b => {
+        const li = document.createElement('li');
+        li.textContent = b.nome;
+        li.onclick = () => selectBarber(b);
+        barbersList.appendChild(li);
+      });
+    } catch (err) {
+      barbersList.innerHTML = 'Erro ao carregar barbeiros.';
+      console.error(err);
+    }
+  }
+
+  // Quando escolher barbeiro
+  function selectBarber(barber) {
+    selectedBarber = barber;
+    barberSelectionDiv.style.display = 'none';
+    agendaDiv.style.display = 'block';
+    barberNameH2.textContent = `Agenda do(a) ${barber.nome}`;
+    // Define data padrão para hoje
+    const hoje = new Date().toISOString().slice(0, 10);
+    dateInput.value = hoje;
+    loadAppointments();
+  }
+
+  // Voltar para seleção de barbeiro
+  backBtn.onclick = () => {
+    selectedBarber = null;
+    agendaDiv.style.display = 'none';
+    barberSelectionDiv.style.display = 'block';
+    // Limpa campos
+    clientNameInput.value = '';
+    clientPhoneInput.value = '';
+    timeSelect.innerHTML = '';
+    appointmentsList.innerHTML = '';
+  };
+
+  // Carregar agendamentos do barbeiro e data selecionada
+  async function loadAppointments() {
+    if (!selectedBarber) return;
+
+    const date = dateInput.value;
+    try {
+      const res = await fetch(`${apiBase}/appointments`);
+      const allAppointments = await res.json();
+      const filtered = allAppointments.filter(a => a.barber_id === selectedBarber.id && a.data_hora.startsWith(date));
+      renderAppointments(filtered);
+      loadAvailableTimes(filtered, date);
+    } catch (err) {
+      appointmentsList.innerHTML = 'Erro ao carregar agendamentos.';
+      console.error(err);
+    }
+  }
+
+  // Mostrar agendamentos na lista
+  function renderAppointments(appointments) {
+    appointmentsList.innerHTML = '';
+    if (appointments.length === 0) {
+      appointmentsList.innerHTML = '<li>Nenhum agendamento para esta data.</li>';
+      return;
+    }
+
+    appointments.forEach(a => {
+      const li = document.createElement('li');
+      li.textContent = `${a.cliente_nome} - ${a.data_hora.slice(11,16)}`;
+
+      const btnCancel = document.createElement('button');
+      btnCancel.textContent = 'Cancelar';
+      btnCancel.className = 'cancel';
+      btnCancel.onclick = () => cancelAppointment(a.id);
+
+      li.appendChild(btnCancel);
+      appointmentsList.appendChild(li);
+    });
+  }
+
+  // Carregar horários disponíveis
+  function loadAvailableTimes(bookedAppointments, date) {
+    const allTimes = ['09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00','18:00'];
+    const bookedTimes = bookedAppointments.map(a => a.data_hora.slice(11,16));
+    const available = allTimes.filter(t => !bookedTimes.includes(t));
+
+    timeSelect.innerHTML = '';
+    if (available.length === 0) {
+      const option = document.createElement('option');
+      option.textContent = 'Sem horários disponíveis';
+      option.disabled = true;
+      timeSelect.appendChild(option);
+      addButton.disabled = true;
+      return;
+    }
+
+    available.forEach(t => {
+      const option = document.createElement('option');
+      option.value = t;
+      option.textContent = t;
+      timeSelect.appendChild(option);
+    });
+    addButton.disabled = false;
+  }
+
+  // Adicionar agendamento
+  async function addAppointment() {
+    const nome = clientNameInput.value.trim();
+    const telefone = clientPhoneInput.value.trim();
+    const time = timeSelect.value;
+    const date = dateInput.value;
+
+    if (!nome || !telefone || !time) {
+      alert('Preencha todos os campos!');
+      return;
+    }
+
+    try {
+      await fetch(`${apiBase}/appointments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          barber_id: selectedBarber.id,
+          cliente_nome: nome,
+          cliente_numero: telefone,
+          data_hora: `${date} ${time}`,
+          status: 'confirmado'
+        })
+      });
+
+      clientNameInput.value = '';
+      clientPhoneInput.value = '';
+      loadAppointments();
+      alert('Agendamento adicionado!');
+    } catch (err) {
+      alert('Erro ao adicionar agendamento.');
+      console.error(err);
+    }
+  }
+
+  // Cancelar agendamento
+  async function cancelAppointment(id) {
+    if (!confirm('Deseja cancelar este agendamento?')) return;
+
+    try {
+      await fetch(`${apiBase}/appointments/${id}`, {
+        method: 'DELETE'
+      });
+      loadAppointments();
+      alert('Agendamento cancelado!');
+    } catch (err) {
+      alert('Erro ao cancelar agendamento.');
+      console.error(err);
+    }
+  }
+
+  // Eventos
+  dateInput.addEventListener('change', loadAppointments);
+  addButton.addEventListener('click', addAppointment);
+
+  // Inicializa
+  loadBarbers();
+</script>
+
+</body>
+</html>
