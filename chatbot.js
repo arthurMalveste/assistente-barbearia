@@ -291,27 +291,35 @@ client.on('message', async msg => {
 
     // ===== ESCOLHA DO HORÁRIO =====
     if (state.step === 'time') {
-        if (text === '0') {
-            resetState(from);
-            await msg.reply('🔙 Voltando ao menu.\nEnvie "menu" para recomeçar.');
-            return;
-        }
-
-        const index = parseInt(text) - 1;
-        if (isNaN(index) || !state.availableTimes[index]) {
-            await msg.reply('❌ Opção inválida. Escolha um número válido ou 0 para voltar.');
-            return;
-        }
-
-        state.time = state.availableTimes[index];
-        state.step = 'confirm';
-        return await msg.reply(
-            `✅ Confirmando:\n` +
-            `Barbeiro: ${state.barber_name}\n` + // ✅ Mostra o nome do barbeiro
-            `Dia: ${moment(state.date).format('DD/MM')} às ${state.time}\n\n` +
-            `1 - Confirmar\n0 - Cancelar`
-        );
+    if (text === '0') {
+        resetState(from);
+        await msg.reply('🔙 Voltando ao menu.\nEnvie "menu" para recomeçar.');
+        return;
     }
+
+    const index = parseInt(text) - 1;
+    if (isNaN(index) || !state.availableTimes[index]) {
+        await msg.reply('❌ Opção inválida. Escolha um número válido ou 0 para voltar.');
+        return;
+    }
+
+    state.time = state.availableTimes[index];
+
+    // ✅ AQUI: Verifica se o horário escolhido já passou
+    const dataHoraEscolhida = moment(`${state.date} ${state.time}`, 'YYYY-MM-DD HH:mm');
+    if (dataHoraEscolhida.isBefore(moment())) {
+        await msg.reply('❌ Você não pode agendar para um horário que já passou. Escolha outro.');
+        return;
+    }
+
+    state.step = 'confirm';
+    return await msg.reply(
+        `✅ Confirmando:\n` +
+        `Barbeiro: ${state.barber_name}\n` +
+        `Dia: ${moment(state.date).format('DD/MM')} às ${state.time}\n\n` +
+        `1 - Confirmar\n0 - Cancelar`
+    );
+}
 
     // ===== CONFIRMAÇÃO DO AGENDAMENTO =====
     if (state.step === 'confirm') {
