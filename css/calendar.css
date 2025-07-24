@@ -1,3 +1,4 @@
+
 body {
     margin: 0;
     font-family: Arial, sans-serif;
@@ -29,4 +30,65 @@ body {
 
 .fc-daygrid-event-dot {
     display: none;
+}
+
+
+/* Filtro */
+.filter-container {
+    margin-bottom: 10px;
+    text-align: center;
+    font-size: 1rem;
+}
+
+.filter-container select {
+    padding: 5px;
+    font-size: 1rem;
+}
+
+/* Cursor pointer nos eventos */
+.fc-event {
+    cursor: pointer;
+}
+
+/* Modal */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.5);
+    justify-content: center;
+    align-items: center;
+}
+
+.modal-content {
+    background: #fff;
+    padding: 20px;
+    border-radius: 8px;
+    width: 300px;
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+
+.close-btn {
+    float: right;
+    font-size: 1.5rem;
+    cursor: pointer;
+}
+
+#cancelBtn {
+    background-color: #dc3545;
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    margin-top: 15px;
+    cursor: pointer;
+    border-radius: 5px;
+}
+
+#cancelBtn:hover {
+    background-color: #b02a37;
 }
