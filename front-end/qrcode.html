@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>QR Code</title>
+    <title>QR Code - Conexão WhatsApp</title>
     <style>
         body {
             display: flex;
@@ -24,13 +24,45 @@
             max-width: 250px;
             margin-top: 1rem;
         }
+        .status {
+            margin-top: 1rem;
+            font-size: 1rem;
+            color: #333;
+        }
     </style>
 </head>
 <body>
     <div class="card">
         <h2>Escaneie o QR Code para conectar</h2>
         <p>Abra o WhatsApp e vá em Configurações > Aparelhos conectados.</p>
-        <img src="https://via.placeholder.com/250?text=QR+Code" alt="QR Code">
+        <img id="qrImage" src="https://via.placeholder.com/250?text=Carregando..." alt="QR Code">
+        <div class="status" id="status">Carregando...</div>
     </div>
+
+    <script>
+        async function updateQRCode() {
+            try {
+                const res = await fetch('http://localhost:3005/qr-code');
+
+                const data = await res.json();
+
+                const img = document.getElementById('qrImage');
+                const status = document.getElementById('status');
+
+                if (data.connected) {
+                    img.src = "https://via.placeholder.com/250?text=Conectado";
+                    status.textContent = "✅ Conectado com sucesso!";
+                } else {
+                    img.src = data.qr || "https://via.placeholder.com/250?text=Gerando...";
+                    status.textContent = "📌 Aguardando conexão...";
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        setInterval(updateQRCode, 5000); // Atualiza a cada 5 segundos
+        updateQRCode();
+    </script>
 </body>
 </html>

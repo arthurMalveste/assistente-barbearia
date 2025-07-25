@@ -1,7 +1,23 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal');
+const { Client, LocalAuth } = require('whatsapp-web.js'); // ✅ IMPORTAÇÃO FALTANTE
+const qrcode = require('qrcode-terminal'); // Para mostrar o QR no terminal
+const QRCode = require('qrcode'); // Para gerar o QR em imagem base64
 const axios = require('axios');
 const moment = require('moment');
+const express = require('express');
+const path = require('path');
+
+
+const app = express();
+const port = 3005;
+
+const cors = require('cors');
+app.use(cors({
+    origin: '*', // Permite todas as origens (para desenvolvimento)
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type']
+}));
+
+let qrCodeImage = null;
 
 const client = new Client({
     authStrategy: new LocalAuth()
@@ -46,14 +62,26 @@ async function getAvailableTimes(barber_id, date) {
     return allTimes.filter(t => !booked.includes(t));
 }
 
-// Bot conectado
-client.on('qr', qr => {
-    qrcode.generate(qr, { small: true });
-    console.log('📌 Escaneie o QR Code para conectar.');
+client.on('qr', async qr => {
+    console.log('📌 Novo QR Code gerado!');
+    qrCodeImage = await QRCode.toDataURL(qr); // Atualiza o QR na memória
 });
 
 client.on('ready', () => {
-    console.log('✅ Bot conectado com sucesso.');
+    console.log('✅ Bot conectado com sucesso!');
+    qrCodeImage = null; // Some da tela quando conectado
+});
+
+client.on('disconnected', reason => {
+    console.log(`❌ Cliente desconectado: ${reason}`);
+    qrCodeImage = null; // Limpa, forçará novo QR assim que initialize for chamado
+    client.initialize(); // Recria a sessão automaticamente
+});
+
+client.on('auth_failure', msg => {
+    console.error('❌ Falha de autenticação', msg);
+    qrCodeImage = null;
+    client.initialize();
 });
 
 // Fluxo de mensagens
@@ -350,5 +378,24 @@ client.on('message', async msg => {
         }
     }
 });
+
+app.get('/qr-code', (req, res) => {
+    res.json({
+        connected: !qrCodeImage, // true = conectado, false = precisa do QR
+        qr: qrCodeImage
+    });
+});
+
+
+// Servir arquivos estáticos (HTML do QR Code)
+
+app.use(express.static(path.join(__dirname, '..', 'front-end')));
+
+
+// Iniciar servidor do QR
+app.listen(port, () => {
+    console.log(`🌐 QR Code disponível em http://localhost:${port}/qrcode.html`);
+});
+
 
 client.initialize();
