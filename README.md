@@ -24,27 +24,6 @@ Este projeto é um sistema completo de agendamento para barbearias, que combina 
 
 ---
 
-## 🗂 Estrutura do Projeto
-
-```
-/projeto-barbearia
-├── chatbot.js             # Lógica do chatbot WhatsApp
-├── server.js              # API REST para gerenciar barbeiros e agendamentos
-├── criardb.js             # Script para criar e popular o banco de dados
-├── barbearia.db           # Banco de dados SQLite (gerado após rodar criardb.js)
-├── /css
-│    ├── style.css         # Estilos gerais do sistema web
-│    └── calendar.css      # Estilos do calendário
-├── /js
-│    └── calendar.js       # Lógica do calendário dinâmico
-├── index.html             # Página principal com navbar
-├── calendar.html          # Página do calendário
-├── qrcode.html            # Página para exibir QR Code de conexão
-└── barbers.html           # Página placeholder para gerenciar barbeiros
-```
-
----
-
 ## ⚙️ Tecnologias Utilizadas
 - **Back-end / Chatbot**:
   - [Node.js](https://nodejs.org)
@@ -94,16 +73,9 @@ Escaneie o QR Code exibido no terminal com o WhatsApp da barbearia.
 ### 6. Abrir o Sistema Web
 Abra o arquivo **`index.html`** no navegador.
 
----
-
-## 📝 Próximas Etapas
-- [ ] Concluir o módulo de gerenciamento de barbeiros no sistema web.
-- [ ] Adicionar lembretes automáticos para clientes antes do horário marcado.
-- [ ] Tornar o sistema multi-barbearia (multiusuários).
-- [ ] Hospedar banco de dados e sistema para uso comercial.
 
 ---
 
 ## 👨‍💻 Autores
-- **Arthur Malveste**  
-- **Gustavo**  
+- **arthurMalveste**  
+- **Gustavofarias6342**  
