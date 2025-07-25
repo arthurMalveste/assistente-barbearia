@@ -2,6 +2,7 @@ const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const bodyParser = require('body-parser');
 const cors = require('cors');
+const path = require('path');
 
 const app = express();
 const port = 3000;
@@ -9,10 +10,16 @@ const port = 3000;
 app.use(cors());
 app.use(bodyParser.json());
 
+// ✅ Caminho correto para o banco na pasta "db"
+const dbPath = path.join(__dirname, 'db', 'barbearia.db');
+
 // Conectar ao banco
-const db = new sqlite3.Database('./barbearia.db', (err) => {
-    if (err) console.error('Erro ao conectar ao banco:', err);
-    else console.log('✅ Banco conectado com sucesso.');
+const db = new sqlite3.Database(dbPath, (err) => {
+    if (err) {
+        console.error('❌ Erro ao conectar ao banco:', err);
+    } else {
+        console.log(`✅ Banco conectado com sucesso: ${dbPath}`);
+    }
 });
 
 // Listar barbeiros
@@ -75,5 +82,4 @@ app.delete('/appointments/:id', (req, res) => {
 // Iniciar servidor
 app.listen(port, () => {
     console.log(`🌐 Servidor rodando em http://localhost:${port}`);
-
 });
