@@ -22,13 +22,33 @@ const db = new sqlite3.Database(dbPath, (err) => {
     }
 });
 
-// Listar barbeiros
-app.get('/barbers', (req, res) => {
-    db.all('SELECT * FROM barbers', [], (err, rows) => {
-        if (err) res.status(500).json({ error: err.message });
-        else res.json(rows);
+
+// Criar novo barbeiro
+app.post('/barbers', (req, res) => {
+    const { nome } = req.body;
+    if (!nome) {
+        return res.status(400).json({ error: 'Nome do barbeiro é obrigatório.' });
+    }
+
+    db.run('INSERT INTO barbers (nome) VALUES (?)', [nome], function (err) {
+        if (err) {
+            res.status(500).json({ error: err.message });
+        } else {
+            res.json({ id: this.lastID, message: 'Barbeiro cadastrado com sucesso.' });
+        }
     });
 });
+
+app.get('/barbers', (req, res) => {
+  db.all('SELECT * FROM barbers', [], (err, rows) => {
+    if (err) {
+      return res.status(500).json({ error: err.message });
+    }
+    res.json(rows);
+  });
+});
+
+
 
 // Listar agendamentos
 app.get('/appointments', (req, res) => {

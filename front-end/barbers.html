@@ -1,31 +1,100 @@
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gerenciar Barbeiros</title>
-    <style>
-        body {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 90vh;
-            background: #f4f4f4;
-            font-family: Arial, sans-serif;
-        }
-        .card {
-            background: white;
-            padding: 2rem;
-            border-radius: 10px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-            text-align: center;
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Cadastrar Barbeiro</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 2rem;
+      background-color: #f5f5f5;
+    }
+
+    h2 {
+      margin-bottom: 1rem;
+    }
+
+    form {
+      background-color: white;
+      padding: 1.5rem;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+      max-width: 400px;
+    }
+
+    label, input, button {
+      display: block;
+      width: 100%;
+      margin-top: 0.8rem;
+    }
+
+    input {
+      padding: 0.5rem;
+      font-size: 1rem;
+    }
+
+    button {
+      margin-top: 1rem;
+      padding: 0.7rem;
+      font-size: 1.1rem;
+      background-color: #007bff;
+      border: none;
+      color: white;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background-color: #0056b3;
+    }
+
+    .message {
+      margin-top: 1rem;
+      font-weight: bold;
+    }
+  </style>
 </head>
 <body>
-    <div class="card">
-        <h2>Gerenciamento de Barbeiros</h2>
-        <p>Em breve você poderá adicionar, editar e remover barbeiros por aqui.</p>
-    </div>
+  <h2>✂️ Cadastrar Novo Barbeiro</h2>
+
+  <form id="barberForm">
+    <label for="nome">Nome do Barbeiro:</label>
+    <input type="text" id="nome" name="nome" required />
+    <button type="submit">Cadastrar</button>
+  </form>
+
+  <div class="message" id="message"></div>
+
+  <script>
+    const form = document.getElementById('barberForm');
+    const message = document.getElementById('message');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const nome = document.getElementById('nome').value;
+
+      try {
+        const response = await fetch('http://localhost:3000/barbers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ nome })
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+          message.textContent = '✅ Barbeiro cadastrado com sucesso!';
+          form.reset();
+        } else {
+          message.textContent = '❌ Erro: ' + result.error;
+        }
+      } catch (error) {
+        message.textContent = '❌ Erro ao conectar ao servidor.';
+        console.error(error);
+      }
+    });
+  </script>
 </body>
 </html>

@@ -1,35 +1,113 @@
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Calendário - Barbearia</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.css">
-    <link rel="stylesheet" href="css/calendar.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.css" />
+    <link rel="stylesheet" href="css/calendar.css" />
+    <style>
+        /* Estilo básico para o modal de novo agendamento */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0; top: 0;
+            width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background: white;
+            padding: 1.5rem 2rem;
+            border-radius: 10px;
+            max-width: 400px;
+            width: 100%;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+        .close-btn {
+            float: right;
+            font-size: 1.5rem;
+            cursor: pointer;
+        }
+        label, input, select, button {
+            display: block;
+            width: 100%;
+            margin-top: 0.5rem;
+        }
+        input, select {
+            padding: 0.5rem;
+            font-size: 1rem;
+        }
+        button {
+            margin-top: 1rem;
+            padding: 0.7rem;
+            font-size: 1.1rem;
+            background-color: #007bff;
+            border: none;
+            color: white;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+    </style>
 </head>
 <body>
     <div class="calendar-container">
         <h2>📅 Agenda da Barbearia</h2>
         <div class="filter-container">
-    <label for="barberFilter">Filtrar por barbeiro:</label>
-    <select id="barberFilter">
-        <option value="">Todos</option>
-    </select>
-</div>
-<div id="calendar"></div>
-
-<!-- Modal para detalhes -->
-<div id="modal" class="modal">
-    <div class="modal-content">
-        <span class="close-btn" id="closeModal">&times;</span>
-        <h3 id="modalTitle"></h3>
-        <p id="modalDate"></p>
-        <button id="cancelBtn">❌ Cancelar agendamento</button>
-    </div>
-</div>
-
+            <label for="barberFilter">Filtrar por barbeiro:</label>
+            <select id="barberFilter">
+                <option value="">Todos</option>
+            </select>
+        </div>
         <div id="calendar"></div>
+
+        <!-- Modal para detalhes -->
+        <div id="modal" class="modal">
+            <div class="modal-content">
+                <span class="close-btn" id="closeModal">&times;</span>
+                <h3 id="modalTitle"></h3>
+                <p id="modalDate"></p>
+                <button id="cancelBtn">❌ Cancelar agendamento</button>
+            </div>
+        </div>
+
+        <!-- Modal para novo agendamento -->
+        <div id="newAppointmentModal" class="modal">
+    <div class="modal-content">
+        <span class="close-btn" id="closeNewModal">&times;</span>
+        <h3>Agendar Novo Horário</h3>
+        <form id="appointmentForm">
+            <label for="clientName">Nome do Cliente:</label>
+            <input type="text" id="clientName" name="clientName" required />
+            
+            <label for="clientNumber">Número do Cliente:</label>
+<input type="tel" id="clientNumber" name="clientNumber" required />
+
+            <label for="appointmentDate">Data:</label>
+            <input type="date" id="appointmentDate" name="appointmentDate" required />
+
+            <label for="appointmentBarber">Barbeiro:</label>
+            <select id="appointmentBarber" name="appointmentBarber" required>
+                <option value="">Selecione um barbeiro</option>
+                <!-- opções adicionadas dinamicamente pelo JS -->
+            </select>
+            
+
+            <label for="appointmentTime">Horário:</label>
+            <select id="appointmentTime" name="appointmentTime" required>
+                <option value="">Selecione um horário</option>
+                <!-- opções preenchidas dinamicamente -->
+            </select>
+
+            <button type="submit">Agendar</button>
+        </form>
     </div>
+</div>
 
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.8/index.global.min.js"></script>
     <script src="js/calendar.js"></script>
