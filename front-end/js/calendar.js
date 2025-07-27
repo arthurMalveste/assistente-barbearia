@@ -67,6 +67,27 @@ document.addEventListener('DOMContentLoaded', async function () {
             optionForm.textContent = b.nome;
             appointmentBarberSelect.appendChild(optionForm);
         });
+        await loadBarbersList();
+    }
+
+    async function loadBarbersList() {
+        const container = document.getElementById('barbersListContainer');
+        if (!container) return; // evita erro se o container não existir
+
+        container.innerHTML = '';
+
+        barbers.forEach(b => {
+            const div = document.createElement('div');
+            div.textContent = b.nome;
+
+            const btn = document.createElement('button');
+            btn.textContent = 'Remover';
+            btn.style.marginLeft = '10px';
+            btn.onclick = () => removeBarber(b.id, b.nome);
+
+            div.appendChild(btn);
+            container.appendChild(div);
+        });
     }
 
     async function loadEvents() {
@@ -95,13 +116,13 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
 
         calendar = new FullCalendar.Calendar(calendarEl, {
-            initialView: 'timeGridWeek',
-            locale: 'pt-br',
-            headerToolbar: {
-                left: 'prev,next today',
-                center: 'title',
-                right: 'dayGridMonth,timeGridWeek,timeGridDay'
-            },
+    initialView: 'timeGridWeek',
+    locale: 'pt-br',
+    headerToolbar: {
+        left: 'prev,next today',
+        center: 'title',
+        right: 'dayGridMonth,timeGridWeek,timeGridDay'
+    },
             slotMinTime: '08:00:00',
             slotMaxTime: '21:00:00',
             events: await loadEvents(),
@@ -111,7 +132,8 @@ document.addEventListener('DOMContentLoaded', async function () {
                 modalDate.textContent = `Data: ${new Date(selectedEvent.start).toLocaleString('pt-BR')}`;
                 modal.style.display = 'flex';
             },
-            dateClick: function (info) {
+            
+           dateClick : function (info) {
                 newAppointmentModal.style.display = 'flex';
                 appointmentDateInput.value = info.dateStr; // só a data yyyy-mm-dd
                 document.getElementById('clientName').value = '';
@@ -240,6 +262,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         e.preventDefault();
 
         const clientName = document.getElementById('clientName').value.trim();
+        const clientNumber = document.getElementById('clientNumber').value.trim(); // corrigi aqui
         const dateValue = appointmentDateInput.value;
         const timeValue = appointmentTimeSelect.value;
         const selectedBarber = appointmentBarberSelect.value;
@@ -306,6 +329,24 @@ document.addEventListener('DOMContentLoaded', async function () {
         calendar.removeAllEvents();
         calendar.addEventSource(filteredEvents);
     });
+
+    async function removeBarber(id, nome) {
+        if (!confirm(`Deseja remover o barbeiro "${nome}"?`)) return;
+
+        try {
+            const res = await fetch(`http://localhost:3000/barbers/${id}`, { method: 'DELETE' });
+            if (!res.ok) {
+                const err = await res.json();
+                throw new Error(err.error || 'Erro ao remover barbeiro');
+            }
+            alert('Barbeiro removido com sucesso!');
+            // Atualizar lista de barbeiros carregados
+            await loadBarbers();
+            await initCalendar(); // Recarrega calendário para refletir a mudança
+        } catch (err) {
+            alert('Erro: ' + err.message);
+        }
+    }
 
     await loadBarbers();
     await initCalendar();

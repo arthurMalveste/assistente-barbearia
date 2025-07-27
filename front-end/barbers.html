@@ -4,56 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Cadastrar Barbeiro</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      padding: 2rem;
-      background-color: #f5f5f5;
-    }
-
-    h2 {
-      margin-bottom: 1rem;
-    }
-
-    form {
-      background-color: white;
-      padding: 1.5rem;
-      border-radius: 10px;
-      box-shadow: 0 0 10px rgba(0,0,0,0.1);
-      max-width: 400px;
-    }
-
-    label, input, button {
-      display: block;
-      width: 100%;
-      margin-top: 0.8rem;
-    }
-
-    input {
-      padding: 0.5rem;
-      font-size: 1rem;
-    }
-
-    button {
-      margin-top: 1rem;
-      padding: 0.7rem;
-      font-size: 1.1rem;
-      background-color: #007bff;
-      border: none;
-      color: white;
-      border-radius: 5px;
-      cursor: pointer;
-    }
-
-    button:hover {
-      background-color: #0056b3;
-    }
-
-    .message {
-      margin-top: 1rem;
-      font-weight: bold;
-    }
-  </style>
+  <link rel="stylesheet" href="css/barber.css" />
 </head>
 <body>
   <h2>✂️ Cadastrar Novo Barbeiro</h2>
@@ -66,9 +17,64 @@
 
   <div class="message" id="message"></div>
 
+  <h2>Barbeiros Cadastrados</h2>
+  <div id="barbersListContainer">Carregando barbeiros...</div>
+
   <script>
     const form = document.getElementById('barberForm');
     const message = document.getElementById('message');
+    const barbersListContainer = document.getElementById('barbersListContainer');
+
+    // Função para carregar barbeiros e renderizar lista com botão remover
+    async function loadBarbersList() {
+      try {
+        const res = await fetch('http://localhost:3000/barbers');
+        if (!res.ok) throw new Error('Falha ao buscar barbeiros');
+        const barbers = await res.json();
+
+        if (barbers.length === 0) {
+          barbersListContainer.textContent = 'Nenhum barbeiro cadastrado.';
+          return;
+        }
+
+        barbersListContainer.innerHTML = '';
+
+        barbers.forEach(barber => {
+          const div = document.createElement('div');
+          div.textContent = barber.nome;
+
+          const btnRemove = document.createElement('button');
+          btnRemove.textContent = 'Remover';
+          btnRemove.onclick = async () => {
+            if (!confirm(`Tem certeza que quer remover o barbeiro "${barber.nome}"?`)) return;
+
+            try {
+              const res = await fetch(`http://localhost:3000/barbers/${barber.id}`, {
+                method: 'DELETE'
+              });
+
+              if (!res.ok) {
+                const err = await res.json();
+                alert('Erro: ' + (err.error || 'Não foi possível remover'));
+                return;
+              }
+
+              alert('Barbeiro removido com sucesso!');
+              loadBarbersList(); // atualiza lista
+            } catch (error) {
+              alert('Erro ao conectar ao servidor.');
+              console.error(error);
+            }
+          };
+
+          div.appendChild(btnRemove);
+          barbersListContainer.appendChild(div);
+        });
+      } catch (error) {
+        barbersListContainer.textContent = 'Erro ao carregar barbeiros.';
+        console.error(error);
+      }
+    }
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -87,6 +93,7 @@
         if (response.ok) {
           message.textContent = '✅ Barbeiro cadastrado com sucesso!';
           form.reset();
+          loadBarbersList(); // atualiza lista após cadastro
         } else {
           message.textContent = '❌ Erro: ' + result.error;
         }
@@ -95,6 +102,9 @@
         console.error(error);
       }
     });
+
+    // Carrega lista ao abrir página
+    loadBarbersList();
   </script>
 </body>
 </html>

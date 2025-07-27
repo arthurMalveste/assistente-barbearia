@@ -98,6 +98,20 @@ app.delete('/appointments/:id', (req, res) => {
         else res.json({ message: 'Agendamento cancelado com sucesso.' });
     });
 });
+// Remover barbeiro
+app.delete('/barbers/:id', (req, res) => {
+    const id = req.params.id;
+
+    db.run('DELETE FROM barbers WHERE id = ?', [id], function (err) {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        if (this.changes === 0) {
+            return res.status(404).json({ error: 'Barbeiro não encontrado.' });
+        }
+        res.json({ message: 'Barbeiro removido com sucesso.' });
+    });
+});
 
 // Iniciar servidor
 app.listen(port, () => {
