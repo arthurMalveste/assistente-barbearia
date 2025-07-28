@@ -79,19 +79,35 @@ app.get('/appointments', (req, res) => {
   });
 });
 
-// Criar agendamento
+// Criar agendamento com verificação de conflito
 app.post('/appointments', (req, res) => {
   const { barber_id, cliente_nome, cliente_numero, data_hora } = req.body;
+
   if (!barber_id || !cliente_nome || !cliente_numero || !data_hora) {
     return res.status(400).json({ error: 'Todos os campos são obrigatórios.' });
   }
 
-  db.run(
-    'INSERT INTO appointments (barber_id, cliente_nome, cliente_numero, data_hora) VALUES (?, ?, ?, ?)',
-    [barber_id, cliente_nome, cliente_numero, data_hora],
-    function (err) {
+  // Verifica se já existe agendamento no mesmo horário com o mesmo barbeiro
+  db.get(
+    'SELECT * FROM appointments WHERE barber_id = ? AND data_hora = ?',
+    [barber_id, data_hora],
+    (err, row) => {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ id: this.lastID, message: 'Agendamento criado com sucesso.' });
+
+      if (row) {
+        // Já existe um agendamento
+        return res.status(409).json({ error: 'Horário já está ocupado para esse barbeiro.' });
+      }
+
+      // Se não existe, insere novo agendamento
+      db.run(
+        'INSERT INTO appointments (barber_id, cliente_nome, cliente_numero, data_hora) VALUES (?, ?, ?, ?)',
+        [barber_id, cliente_nome, cliente_numero, data_hora],
+        function (err) {
+          if (err) return res.status(500).json({ error: err.message });
+          res.json({ id: this.lastID, message: 'Agendamento criado com sucesso.' });
+        }
+      );
     }
   );
 });

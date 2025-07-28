@@ -150,7 +150,7 @@ function startClient() {
             }
 
             if (text === '3') {
-            const endereco = await getConfig('endereco') || 'Endereço não configurado.';
+            const endereco = await getConfig('endereco') || 'Endereço 📌 Estamos na Rua Fictícia, 123 - Centro.';
             await msg.reply(endereco);
             resetState(from);
             return;
@@ -421,25 +421,28 @@ function startClient() {
             }
 
             if (text === '1') {
-                try {
-                    const contact = await client.getContactById(from);
-                    const nomeCliente = contact.pushname || contact.name || 'Cliente WhatsApp';
+    try {
+        const contact = await client.getContactById(from);
+        const nomeCliente = contact.pushname || contact.name || 'Cliente WhatsApp';
 
-                    await axios.post('http://localhost:3000/appointments', {
-                        barber_id: state.barber_id,
-                        cliente_nome: nomeCliente,
-                        cliente_numero: from.replace('@c.us', ''),
-                        data_hora: `${state.date} ${state.time}`
-                    });
+        await axios.post('http://localhost:3000/appointments', {
+            barber_id: state.barber_id,
+            cliente_nome: nomeCliente,
+            cliente_numero: from.replace('@c.us', ''),
+            data_hora: `${state.date} ${state.time}`
+        });
 
-                    await msg.reply(`✅ Agendamento confirmado para ${moment(state.date).format('DD/MM')} às ${state.time}.`);
-                } catch (err) {
-                    console.error(err);
-                    await msg.reply('❌ Erro ao salvar agendamento.');
-                }
-                resetState(from);
-                return;
-            }
+        await msg.reply(`✅ Agendamento confirmado para ${moment(state.date).format('DD/MM')} às ${state.time}.`);
+    } catch (err) {
+        if (err.response && err.response.status === 409) {
+            await msg.reply('❌ Este horário acabou de ser ocupado. Por favor, escolha outro.');
+        } else {
+            await msg.reply('❌ Erro ao salvar agendamento.');
+        }
+    }
+    resetState(from);
+    return;
+}
         }
     });
 
