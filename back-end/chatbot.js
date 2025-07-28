@@ -54,6 +54,17 @@ async function getAvailableTimes(barber_id, date) {
     return allTimes.filter(t => !booked.includes(t));
 }
 
+async function getConfig(chave) {
+    return new Promise((resolve, reject) => {
+        const db = new sqlite3.Database(dbpath);
+        db.get("SELECT valor FROM config WHERE chave = ?", [chave], (err, row) => {
+            db.close();
+            if (err) return reject(err);
+            resolve(row ? row.valor : null);
+        });
+    });
+}
+
 // Função para iniciar o client e registrar eventos
 function startClient() {
     client = new Client({
@@ -130,15 +141,17 @@ function startClient() {
             }
 
             if (text === '2') {
-                await msg.reply('💈 Conheça - nos:\n- Barbearia fundada em 1900, a melhor da cidade');
-                resetState(from);
-                return;
+            const descricao = await getConfig('descricao') || 'Informação não disponível.';
+            await msg.reply(descricao);
+            resetState(from);
+            return;
             }
 
             if (text === '3') {
-                await msg.reply('📌 Estamos na Rua 1, 123 - Centro.');
-                resetState(from);
-                return;
+            const endereco = await getConfig('endereco') || 'Endereço não configurado.';
+            await msg.reply(endereco);
+            resetState(from);
+            return;
             }
 
             if (text === '4') {

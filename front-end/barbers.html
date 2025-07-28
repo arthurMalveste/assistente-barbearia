@@ -3,108 +3,62 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Cadastrar Barbeiro</title>
+  <title>Painel da Barbearia</title>
   <link rel="stylesheet" href="css/barber.css" />
 </head>
 <body>
-  <h2>✂️ Cadastrar Novo Barbeiro</h2>
+  <div class="container">
+    <header>
+      <h1>💈 Painel de Administração</h1>
+      <nav class="tabs">
+        <button onclick="showTab('barbers')" id="tabBarbers">Barbeiros</button>
+        <button onclick="showTab('info')" id="tabInfo">Informações</button>
+      </nav>
+    </header>
 
-  <form id="barberForm">
-    <label for="nome">Nome do Barbeiro:</label>
-    <input type="text" id="nome" name="nome" required />
-    <button type="submit">Cadastrar</button>
-  </form>
+    <main>
+      <!-- ABA BARBEIROS -->
+      <section id="barbers" class="tab-content">
+        <h2>✂️ Cadastrar Barbeiro</h2>
+        <form id="barberForm" class="card">
+          <label for="nome">Nome:</label>
+          <input type="text" id="nome" name="nome" required placeholder="Digite o nome do barbeiro..." />
 
-  <div class="message" id="message"></div>
+          <label for="telefone">Telefone:</label>
+          <input type="tel" id="telefone" name="telefone" placeholder="Ex: 11999999999" />
 
-  <h2>Barbeiros Cadastrados</h2>
-  <div id="barbersListContainer">Carregando barbeiros...</div>
+          <button type="submit">Salvar</button>
+        </form>
+
+        <div class="message" id="message"></div>
+
+        <h3>📋 Lista de Barbeiros</h3>
+        <div id="barbersListContainer" class="card-list">Carregando...</div>
+      </section>
+
+      <!-- ABA INFORMAÇÕES -->
+      <section id="info" class="tab-content" style="display: none;">
+        <h2>🏢 Informações da Barbearia</h2>
+        <form id="infoForm" class="card">
+          <label for="endereco">📍 Endereço:</label>
+          <input type="text" id="endereco" name="endereco" required placeholder="Ex: Rua 123, Centro" />
+
+          <label for="sobre">📝 Quem Somos:</label>
+          <textarea id="sobre" name="sobre" rows="5" required placeholder="Fale um pouco sobre a barbearia..."></textarea>
+
+          <button type="submit">Salvar Informações</button>
+        </form>
+        <div class="message" id="infoMessage"></div>
+      </section>
+    </main>
+  </div>
 
   <script>
-    const form = document.getElementById('barberForm');
-    const message = document.getElementById('message');
-    const barbersListContainer = document.getElementById('barbersListContainer');
-
-    // Função para carregar barbeiros e renderizar lista com botão remover
-    async function loadBarbersList() {
-      try {
-        const res = await fetch('http://localhost:3000/barbers');
-        if (!res.ok) throw new Error('Falha ao buscar barbeiros');
-        const barbers = await res.json();
-
-        if (barbers.length === 0) {
-          barbersListContainer.textContent = 'Nenhum barbeiro cadastrado.';
-          return;
-        }
-
-        barbersListContainer.innerHTML = '';
-
-        barbers.forEach(barber => {
-          const div = document.createElement('div');
-          div.textContent = barber.nome;
-
-          const btnRemove = document.createElement('button');
-          btnRemove.textContent = 'Remover';
-          btnRemove.onclick = async () => {
-            if (!confirm(`Tem certeza que quer remover o barbeiro "${barber.nome}"?`)) return;
-
-            try {
-              const res = await fetch(`http://localhost:3000/barbers/${barber.id}`, {
-                method: 'DELETE'
-              });
-
-              if (!res.ok) {
-                const err = await res.json();
-                alert('Erro: ' + (err.error || 'Não foi possível remover'));
-                return;
-              }
-
-              alert('Barbeiro removido com sucesso!');
-              loadBarbersList(); // atualiza lista
-            } catch (error) {
-              alert('Erro ao conectar ao servidor.');
-              console.error(error);
-            }
-          };
-
-          div.appendChild(btnRemove);
-          barbersListContainer.appendChild(div);
-        });
-      } catch (error) {
-        barbersListContainer.textContent = 'Erro ao carregar barbeiros.';
-        console.error(error);
-      }
+    function showTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(t => t.style.display = 'none');
+      document.getElementById(tabId).style.display = 'block';
     }
-
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-
-      const nome = document.getElementById('nome').value;
-
-      try {
-        const response = await fetch('http://localhost:3000/barbers', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ nome })
-        });
-
-        const result = await response.json();
-
-        if (response.ok) {
-          message.textContent = '✅ Barbeiro cadastrado com sucesso!';
-          form.reset();
-          loadBarbersList(); // atualiza lista após cadastro
-        } else {
-          message.textContent = '❌ Erro: ' + result.error;
-        }
-      } catch (error) {
-        message.textContent = '❌ Erro ao conectar ao servidor.';
-        console.error(error);
-      }
-    });
-
-    // Carrega lista ao abrir página
-    loadBarbersList();
   </script>
+  <script src="js/barbers-ui.js"></script>
 </body>
 </html>

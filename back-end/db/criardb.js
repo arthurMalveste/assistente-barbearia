@@ -27,14 +27,24 @@ db.serialize(() => {
         )
     `);
 
-    console.log("✅ Tabelas criadas com sucesso!");
+    // Tabela de configurações institucionais
+    db.run(`
+        CREATE TABLE IF NOT EXISTS config (
+            chave TEXT PRIMARY KEY,
+            valor TEXT
+        )
+    `);
+
+    // Inserir configurações padrão
+    db.run("INSERT OR IGNORE INTO config (chave, valor) VALUES ('descricao', '💈 Conheça - nos:\\n- Barbearia fundada em 1900, a melhor da cidade')");
+    db.run("INSERT OR IGNORE INTO config (chave, valor) VALUES ('endereco', '📌 Estamos na Rua 1, 123 - Centro.')");
 
     // Inserir barbeiros de exemplo
     db.run("INSERT INTO barbers (nome, telefone) VALUES ('João', '11999999999')");
     db.run("INSERT INTO barbers (nome, telefone) VALUES ('Guilherme', '11888888888')");
     db.run("INSERT INTO barbers (nome, telefone) VALUES ('Diego', '11777777777')");
 
-    console.log("✅ Barbeiros de exemplo adicionados!");
+    console.log("✅ Banco de dados configurado com sucesso!");
 });
 
 db.close(() => {

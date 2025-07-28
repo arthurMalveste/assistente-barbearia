@@ -115,7 +115,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             calendar.destroy();
         }
 
-        calendar = new FullCalendar.Calendar(calendarEl, {
+       calendar = new FullCalendar.Calendar(calendarEl, {
     initialView: 'timeGridWeek',
     locale: 'pt-br',
     headerToolbar: {
