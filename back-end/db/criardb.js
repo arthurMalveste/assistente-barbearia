@@ -2,12 +2,15 @@ const sqlite3 = require('sqlite3').verbose();
 const db = new sqlite3.Database('./barbearia.db');
 
 db.serialize(() => {
-    console.log("✅ Criando tabelas...");
+    console.log("✅ Recriando tabelas...");
 
-    // Tabela de barbeiros
+    // ⚠️ Dropa a tabela barbers para recriar sem AUTOINCREMENT
+    db.run(`DROP TABLE IF EXISTS barbers`);
+
+    // ✅ Tabela de barbeiros sem AUTOINCREMENT
     db.run(`
         CREATE TABLE IF NOT EXISTS barbers (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id INTEGER PRIMARY KEY,
             nome TEXT NOT NULL,
             telefone TEXT,
             preferencias_horario TEXT
@@ -35,14 +38,15 @@ db.serialize(() => {
         )
     `);
 
-    // Inserir configurações padrão
-    db.run("INSERT OR IGNORE INTO config (chave, valor) VALUES ('descricao', '💈 Conheça - nos:\\n- Barbearia fundada em 1900, a melhor da cidade')");
-    db.run("INSERT OR IGNORE INTO config (chave, valor) VALUES ('endereco', '📌 Estamos na Rua 1, 123 - Centro.')");
+    db.serialize(() => {
+    db.run("INSERT OR REPLACE INTO config (chave, valor) VALUES ('descricao', '💈 Tabela de valores:\n- Corte: R$30\n- Barba: R$20\n- Sobrancelha: R$10')");
+    db.run("INSERT OR REPLACE INTO config (chave, valor) VALUES ('endereco', '📌 Estamos na Rua Fictícia, 123 - Centro')");
+});
 
-    // Inserir barbeiros de exemplo
-    db.run("INSERT INTO barbers (nome, telefone) VALUES ('João', '11999999999')");
-    db.run("INSERT INTO barbers (nome, telefone) VALUES ('Guilherme', '11888888888')");
-    db.run("INSERT INTO barbers (nome, telefone) VALUES ('Diego', '11777777777')");
+    // Inserir barbeiros de exemplo (com IDs explícitos se quiser controlar)
+    db.run("INSERT INTO barbers (id, nome, telefone) VALUES (1, 'João', '11999999999')");
+    db.run("INSERT INTO barbers (id, nome, telefone) VALUES (2, 'Guilherme', '11888888888')");
+    db.run("INSERT INTO barbers (id, nome, telefone) VALUES (3, 'Diego', '11777777777')");
 
     console.log("✅ Banco de dados configurado com sucesso!");
 });
