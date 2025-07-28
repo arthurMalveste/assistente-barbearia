@@ -10,6 +10,8 @@ const cors = require('cors');
 const app = express();
 const port = 3005;
 
+const sqlite3 = require('sqlite3').verbose();
+const dbPath = path.resolve(__dirname, 'db', 'barbearia.db');
 app.use(cors({
     origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
@@ -56,7 +58,7 @@ async function getAvailableTimes(barber_id, date) {
 
 async function getConfig(chave) {
     return new Promise((resolve, reject) => {
-        const db = new sqlite3.Database(dbpath);
+        const db = new sqlite3.Database(dbPath);
         db.get("SELECT valor FROM config WHERE chave = ?", [chave], (err, row) => {
             db.close();
             if (err) return reject(err);
@@ -126,7 +128,7 @@ function startClient() {
                 }
 
                 // Se não tiver agendamento futuro, mostra menu normal
-                await msg.reply('👋 Olá! Sou o assistente virtual da Barbearia. Escolha:\n1 - 📅 Agendar horário\n2 - 💈 Conheça-nos\n3 - 📌 Localização\n4 - 🔄 Remarcar ou Cancelar horário');
+                await msg.reply('👋 Olá! Sou o assistente virtual da Barbearia. Escolha:\n1 - 📅 Agendar horário\n2 - 💈 Valores\n3 - 📌 Localização\n4 - 🔄 Remarcar ou Cancelar horário');
                 return;
             }
 
