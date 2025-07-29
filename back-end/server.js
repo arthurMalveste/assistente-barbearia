@@ -114,14 +114,33 @@ app.post('/appointments', (req, res) => {
 
 // Atualizar agendamento
 app.put('/appointments/:id', (req, res) => {
-  const { data_hora } = req.body;
   const id = req.params.id;
+  const {
+    barber_id,
+    cliente_nome,
+    cliente_numero,
+    data_hora,
+    status,
+    lembrete_enviado
+  } = req.body;
+
   if (!data_hora) return res.status(400).json({ error: 'Data/hora obrigatória.' });
 
-  db.run('UPDATE appointments SET data_hora = ? WHERE id = ?', [data_hora, id], function (err) {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ message: 'Agendamento atualizado com sucesso.' });
-  });
+  db.run(
+    `UPDATE appointments SET
+      barber_id = ?,
+      cliente_nome = ?,
+      cliente_numero = ?,
+      data_hora = ?,
+      status = ?,
+      lembrete_enviado = ?
+     WHERE id = ?`,
+    [barber_id, cliente_nome, cliente_numero, data_hora, status || 'confirmado', lembrete_enviado ? 1 : 0, id],
+    function (err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ message: 'Agendamento atualizado com sucesso.' });
+    }
+  );
 });
 
 // Remover agendamento

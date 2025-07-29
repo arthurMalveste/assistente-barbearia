@@ -8,11 +8,13 @@ const path = require('path');
 const cors = require('cors');
 const cron = require('node-cron');
 
+
 const app = express();
 const port = 3005;
 
 const sqlite3 = require('sqlite3').verbose();
 const dbPath = path.resolve(__dirname, 'db', 'barbearia.db');
+const db = new sqlite3.Database(dbPath);
 app.use(cors({
     origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
@@ -53,7 +55,7 @@ async function getAvailableTimes(barber_id, date) {
         .filter(a => a.barber_id == barber_id && a.data_hora.startsWith(date))
         .map(a => moment(a.data_hora).format('HH:mm'));
 
-    const allTimes = ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00'];
+    const allTimes = ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00'];
     return allTimes.filter(t => !booked.includes(t));
 }
 
@@ -99,36 +101,47 @@ function startClient() {
     });
 
     // ====================== SISTEMA DE LEMBRETES ==========================
-    cron.schedule('* * * * *', async () => {
-        try {
-            const res = await axios.get('http://localhost:3000/appointments');
-            const now = moment();
-            const inOneHour = now.clone().add(1, 'hours');
+   cron.schedule('* * * * *', async () => {
+    console.log('🔔 Rodando verificação de lembretes...');
+    try {
+        const res = await axios.get('http://localhost:3000/appointments');
+        const now = moment();
+        const inOneHour = now.clone().add(1, 'hours');
+        console.log(`Hora atual: ${now.format('YYYY-MM-DD HH:mm')}, +1 hora: ${inOneHour.format('YYYY-MM-DD HH:mm')}`);
 
-            for (const appt of res.data) {
-                if (appt.lembrete_enviado) continue; // já enviado
+        for (const appt of res.data) {
+            console.log(`Verificando agendamento ${appt.id}, lembrete_enviado: ${appt.lembrete_enviado}`);
+            if (appt.lembrete_enviado === 1) continue;  // Verifica se já foi enviado
 
-                const apptTime = moment(appt.data_hora, 'YYYY-MM-DD HH:mm');
-                if (apptTime.isBetween(now, inOneHour)) {
-                    const msg = `⏰ Olá ${appt.cliente_nome}! Lembrete: seu horário na barbearia é hoje às ${apptTime.format('HH:mm')}. Até já!`;
+            const apptTime = moment(appt.data_hora, 'YYYY-MM-DD HH:mm');
+            console.log(`Data agendamento: ${apptTime.format('YYYY-MM-DD HH:mm')}`);
 
-                    // Primeiro marca como enviado no banco
-await axios.put(`http://localhost:3000/appointments/${appt.id}`, { lembrete_enviado: true });
+            if (apptTime.isBetween(now, inOneHour, null, '[]')) {  // inclui limites
+                const msg = `⏰ Olá ${appt.cliente_nome}! Lembrete: seu horário na barbearia é hoje às ${apptTime.format('HH:mm')}. Até já!`;
+                console.log(`Enviando lembrete para ${appt.cliente_numero}`);
 
-try {
-    // Depois tenta enviar a mensagem
-    await client.sendMessage(`${appt.cliente_numero}@c.us`, msg);
-    console.log(`✅ Lembrete enviado para ${appt.cliente_numero}`);
-} catch (err) {
-    console.log(`❌ Erro ao enviar lembrete para ${appt.cliente_numero}:`, err.message);
-    // Opcional: você pode desfazer a marcação caso falhe, se quiser
-}
+                try {
+                    // Envia o lembrete via WhatsApp
+                    await client.sendMessage(`${appt.cliente_numero}@c.us`, msg);
+                    console.log(`✅ Lembrete enviado para ${appt.cliente_numero}`);
+
+                    // Atualiza o banco para marcar que o lembrete foi enviado
+                    db.run(`UPDATE appointments SET lembrete_enviado = 1 WHERE id = ?`, [appt.id], function(err) {
+                        if (err) {
+                            console.error("Erro ao atualizar lembrete_enviado:", err.message);
+                        } else {
+                            console.log(`✅ Lembrete enviado e atualizado para agendamento ID ${appt.id}`);
+                        }
+                    });
+                } catch (err) {
+                    console.log(`❌ Erro ao enviar lembrete para ${appt.cliente_numero}:`, err.message);
                 }
             }
-        } catch (err) {
-            console.log('Erro no cron de lembretes:', err.message);
         }
-    });
+    } catch (err) {
+        console.log('Erro no cron de lembretes:', err.message);
+    }
+});
     client.on('message', async msg => {
         if (msg.from.endsWith('@g.us')) return; // Ignorar grupos
 
@@ -607,7 +620,38 @@ app.get('/qr-code', async (req, res) => {
 });
 
 app.use(express.static(path.join(__dirname, '..', 'front-end')));
+app.get('/test-lembrete', async (req, res) => {
+    try {
+        const resApi = await axios.get('http://localhost:3000/appointments');
+        const now = moment();
+        const inOneHour = now.clone().add(1, 'hours');
 
+        const futuros = [];
+
+        for (const appt of resApi.data) {
+            const apptTime = moment(appt.data_hora, 'YYYY-MM-DD HH:mm');
+            if (apptTime.isBetween(now, inOneHour, null, '[]') && !appt.lembrete_enviado) {
+                futuros.push({
+                    id: appt.id,
+                    cliente: appt.cliente_nome,
+                    numero: appt.cliente_numero,
+                    data_hora: apptTime.format('YYYY-MM-DD HH:mm')
+                });
+            }
+        }
+
+        res.json({
+            agora: now.format('YYYY-MM-DD HH:mm'),
+            ate: inOneHour.format('YYYY-MM-DD HH:mm'),
+            lembretesEncontrados: futuros.length,
+            lembretes: futuros
+        });
+
+    } catch (err) {
+        console.error('Erro no teste de lembrete:', err.message);
+        res.status(500).send('Erro no teste de lembrete.');
+    }
+});
 app.listen(port, () => {
     console.log(`🌐 QR Code disponível em http://localhost:${port}/qrcode.html`);
 });
