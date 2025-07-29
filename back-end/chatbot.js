@@ -6,6 +6,7 @@ const moment = require('moment');
 const express = require('express');
 const path = require('path');
 const cors = require('cors');
+const cron = require('node-cron');
 
 const app = express();
 const port = 3005;
@@ -97,6 +98,37 @@ function startClient() {
         startClient(); // reinicia o client para tentar autenticar novamente
     });
 
+    // ====================== SISTEMA DE LEMBRETES ==========================
+    cron.schedule('* * * * *', async () => {
+        try {
+            const res = await axios.get('http://localhost:3000/appointments');
+            const now = moment();
+            const inOneHour = now.clone().add(1, 'hours');
+
+            for (const appt of res.data) {
+                if (appt.lembrete_enviado) continue; // já enviado
+
+                const apptTime = moment(appt.data_hora, 'YYYY-MM-DD HH:mm');
+                if (apptTime.isBetween(now, inOneHour)) {
+                    const msg = `⏰ Olá ${appt.cliente_nome}! Lembrete: seu horário na barbearia é hoje às ${apptTime.format('HH:mm')}. Até já!`;
+
+                    // Primeiro marca como enviado no banco
+await axios.put(`http://localhost:3000/appointments/${appt.id}`, { lembrete_enviado: true });
+
+try {
+    // Depois tenta enviar a mensagem
+    await client.sendMessage(`${appt.cliente_numero}@c.us`, msg);
+    console.log(`✅ Lembrete enviado para ${appt.cliente_numero}`);
+} catch (err) {
+    console.log(`❌ Erro ao enviar lembrete para ${appt.cliente_numero}:`, err.message);
+    // Opcional: você pode desfazer a marcação caso falhe, se quiser
+}
+                }
+            }
+        } catch (err) {
+            console.log('Erro no cron de lembretes:', err.message);
+        }
+    });
     client.on('message', async msg => {
         if (msg.from.endsWith('@g.us')) return; // Ignorar grupos
 
@@ -174,10 +206,13 @@ function startClient() {
             if (text === '1') {
                 // Remarcar
                 state.step = 'reschedule_select';
-                let list = 'Seus agendamentos:\n';
-                state.appointments.forEach((a, i) => {
-                    list += `${i + 1} - Barbeiro ${a.barber_id} em ${moment(a.data_hora).format('DD/MM HH:mm')}\n`;
-                });
+                const barbers = await getBarbers();
+let list = 'Seus agendamentos:\n';
+state.appointments.forEach((a, i) => {
+    const barber = barbers.find(b => b.id === a.barber_id);
+    list += `${i + 1} - ${barber ? barber.nome : 'Barbeiro desconhecido'} em ${moment(a.data_hora).format('DD/MM HH:mm')}\n`;
+});
+
                 list += '0 - 🔙 Voltar';
                 await msg.reply(list);
                 return;
@@ -186,10 +221,13 @@ function startClient() {
             if (text === '2') {
                 // Cancelar
                 state.step = 'cancel_select';
-                let list = 'Seus agendamentos:\n';
-                state.appointments.forEach((a, i) => {
-                    list += `${i + 1} - Barbeiro ${a.barber_id} em ${moment(a.data_hora).format('DD/MM HH:mm')}\n`;
-                });
+                const barbers = await getBarbers();
+let list = 'Seus agendamentos:\n';
+state.appointments.forEach((a, i) => {
+    const barber = barbers.find(b => b.id === a.barber_id);
+    list += `${i + 1} - ${barber ? barber.nome : 'Barbeiro desconhecido'} em ${moment(a.data_hora).format('DD/MM HH:mm')}\n`;
+});
+
                 list += '0 - 🔙 Voltar';
                 await msg.reply(list);
                 return;
@@ -229,10 +267,13 @@ function startClient() {
                 state.appointments = appointments;
                 state.step = text === '1' ? 'reschedule_select' : 'cancel_select';
 
-                let list = 'Seus agendamentos:\n';
-                appointments.forEach((a, i) => {
-                    list += `${i + 1} - Barbeiro ${a.barber_id} em ${moment(a.data_hora).format('DD/MM HH:mm')}\n`;
-                });
+                const barbers = await getBarbers();
+let list = 'Seus agendamentos:\n';
+state.appointments.forEach((a, i) => {
+    const barber = barbers.find(b => b.id === a.barber_id);
+    list += `${i + 1} - ${barber ? barber.nome : 'Barbeiro desconhecido'} em ${moment(a.data_hora).format('DD/MM HH:mm')}\n`;
+});
+
                 list += '0 - 🔙 Voltar';
                 await msg.reply(list);
                 return;
@@ -262,62 +303,143 @@ function startClient() {
 
         // ===== REMARCAR =====
         if (state.step === 'reschedule_select') {
-            if (text === '0') {
-                resetState(from);
-                await msg.reply('🔙 Voltando ao menu.\nEnvie "menu" para recomeçar.');
-                return;
-            }
+    if (text === '0') {
+        resetState(from);
+        await msg.reply('🔙 Voltando ao menu.\nEnvie "menu" para recomeçar.');
+        return;
+    }
 
-            const index = parseInt(text) - 1;
-            if (isNaN(index) || !state.appointments[index]) {
-                await msg.reply('❌ Opção inválida.');
-                return;
-            }
+    const index = parseInt(text) - 1;
+    if (isNaN(index) || !state.appointments[index]) {
+        await msg.reply('❌ Opção inválida.');
+        return;
+    }
 
-            state.selectedAppointment = state.appointments[index];
-            state.barber_id = state.selectedAppointment.barber_id;
-            state.step = 'reschedule_date';
-            await msg.reply('📅 Para que dia deseja remarcar? (DD/MM)\n0 - 🔙 Voltar');
-            return;
+    state.selectedAppointment = state.appointments[index];
+    // Aí não selecionamos mais barber_id direto, vamos pedir para escolher barbeiro
+    state.step = 'reschedule_barber';
+
+    const barbers = await getBarbers();
+    let list = 'Qual barbeiro você prefere para remarcar?\n';
+    barbers.forEach(b => list += `${b.id} - ${b.nome}\n`);
+    list += '0 - 🔙 Voltar';
+
+    await msg.reply(list);
+    return;
+}
+
+// Nova etapa 'reschedule_barber' para escolher barbeiro na remarcação
+if (state.step === 'reschedule_barber') {
+    if (text === '0') {
+        resetState(from);
+        await msg.reply('🔙 Voltando ao menu.\nEnvie "menu" para recomeçar.');
+        return;
+    }
+
+    const barbers = await getBarbers();
+    const selected = barbers.find(b => b.id == text);
+    if (!selected) {
+        await msg.reply('❌ Opção inválida. Escolha um número válido ou 0 para voltar.');
+        return;
+    }
+
+    state.barber_id = selected.id;
+    state.barber_name = selected.nome;
+    state.step = 'reschedule_date';
+    await msg.reply('📅 Para que dia deseja remarcar? (responda no formato DD/MM)\n0 - 🔙 Voltar');
+    return;
+}
+
+if (state.step === 'reschedule_date') {
+    if (text === '0') {
+        resetState(from);
+        await msg.reply('🔙 Voltando ao menu.\nEnvie "menu" para recomeçar.');
+        return;
+    }
+
+    if (!/\d{2}\/\d{2}/.test(text)) {
+        await msg.reply('❌ Data inválida. Use o formato DD/MM ou 0 para voltar.');
+        return;
+    }
+
+    const [day, month] = text.split('/');
+    const currentYear = moment().year();
+
+    let date = moment(`${currentYear}-${month}-${day}`, 'YYYY-MM-DD');
+
+    if (!date.isValid() || date.isBefore(moment().startOf('day'))) {
+        await msg.reply('❌ Data inválida ou passada. Escolha uma data válida a partir de hoje.');
+        return;
+    }
+
+    state.date = date.format('YYYY-MM-DD');
+    const times = await getAvailableTimes(state.barber_id, state.date);
+    if (times.length === 0) {
+        await msg.reply('❌ Nenhum horário disponível neste dia. Tente outro dia.');
+        return;
+    }
+
+    let list = `⏰ Horários disponíveis em ${text}:\n`;
+    times.forEach((t, i) => list += `${i + 1} - ${t}\n`);
+    list += '0 - 🔙 Voltar';
+    state.step = 'reschedule_time';
+    state.availableTimes = times;
+    await msg.reply(list);
+    return;
+}
+// ===== CONFIRMAÇÃO DE REMARCAÇÃO =====
+if (state.step === 'reschedule_time') {
+    if (text === '0') {
+        resetState(from);
+        await msg.reply('🔙 Voltando ao menu.\nEnvie "menu" para recomeçar.');
+        return;
+    }
+
+    const index = parseInt(text) - 1;
+    if (isNaN(index) || !state.availableTimes[index]) {
+        await msg.reply('❌ Opção inválida. Escolha um número válido ou 0 para voltar.');
+        return;
+    }
+
+    state.time = state.availableTimes[index];
+    state.step = 'reschedule_confirm';
+
+    await msg.reply(
+        `✅ Confirmando nova data:\n` +
+        `Barbeiro: ${state.barber_name}\n` +
+        `Dia: ${moment(state.date).format('DD/MM')} às ${state.time}\n\n` +
+        `1 - Confirmar remarcação\n0 - Cancelar`
+    );
+    return;
+}
+
+// ===== APLICAR REMARCAÇÃO =====
+if (state.step === 'reschedule_confirm') {
+    if (text === '0') {
+        resetState(from);
+        await msg.reply('❌ Remarcação cancelada. Envie "menu" para recomeçar.');
+        return;
+    }
+
+    if (text === '1') {
+        try {
+            await axios.put(`http://localhost:3000/appointments/${state.selectedAppointment.id}`, {
+                data_hora: `${state.date} ${state.time}`,
+                lembrete_enviado: false // Reinicia lembrete
+            });
+
+            await msg.reply(`🔄 Agendamento atualizado para ${moment(state.date).format('DD/MM')} às ${state.time}.`);
+        } catch (err) {
+            await msg.reply('❌ Erro ao remarcar. Tente novamente.');
         }
 
-        if (state.step === 'reschedule_date') {
-            if (text === '0') {
-                resetState(from);
-                await msg.reply('🔙 Voltando ao menu.\nEnvie "menu" para recomeçar.');
-                return;
-            }
+        resetState(from);
+        return;
+    }
 
-            if (!/\d{2}\/\d{2}/.test(text)) {
-                await msg.reply('❌ Data inválida. Use o formato DD/MM ou 0 para voltar.');
-                return;
-            }
-
-            const [day, month] = text.split('/');
-            const currentYear = moment().year();
-
-            let date = moment(`${currentYear}-${month}-${day}`, 'YYYY-MM-DD');
-
-            if (!date.isValid() || date.isBefore(moment().startOf('day'))) {
-                await msg.reply('❌ Data inválida ou passada. Escolha uma data válida a partir de hoje.');
-                return;
-            }
-
-            state.date = date.format('YYYY-MM-DD');
-            const times = await getAvailableTimes(state.barber_id, state.date);
-            if (times.length === 0) {
-                await msg.reply('❌ Nenhum horário disponível neste dia.');
-                return;
-            }
-
-            let list = `⏰ Horários disponíveis:\n`;
-            times.forEach((t, i) => list += `${i + 1} - ${t}\n`);
-            list += '0 - 🔙 Voltar';
-            state.availableTimes = times;
-            state.step = 'reschedule_time';
-            await msg.reply(list);
-            return;
-        }
+    await msg.reply('❌ Opção inválida. Confirme com 1 ou cancele com 0.');
+    return;
+}
 
         // ===== ESCOLHA DO BARBEIRO (AGENDAMENTO) =====
         if (state.step === 'barber') {
@@ -429,7 +551,8 @@ function startClient() {
             barber_id: state.barber_id,
             cliente_nome: nomeCliente,
             cliente_numero: from.replace('@c.us', ''),
-            data_hora: `${state.date} ${state.time}`
+            data_hora: `${state.date} ${state.time}`,
+            lembrete_enviado: false
         });
 
         await msg.reply(`✅ Agendamento confirmado para ${moment(state.date).format('DD/MM')} às ${state.time}.`);
