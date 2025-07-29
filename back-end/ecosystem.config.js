@@ -8,7 +8,7 @@ module.exports = {
       max_restarts: 10,
       restart_delay: 3000,       // 3 segundos de delay antes de reiniciar
       env: {
-        NODE_ENV: 'production',
+        NODE_ENV: 'production', // faixa de gaza
       },
       env_development: {
         NODE_ENV: 'development',
