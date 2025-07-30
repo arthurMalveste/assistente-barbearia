@@ -1,3 +1,6 @@
+
+const puppeteer = require('puppeteer');
+const { executablePath } = puppeteer;
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const QRCode = require('qrcode');
@@ -7,6 +10,7 @@ const express = require('express');
 const path = require('path');
 const cors = require('cors');
 const cron = require('node-cron');
+
 
 
 const app = express();
@@ -70,11 +74,17 @@ async function getConfig(chave) {
     });
 }
 
-// Função para iniciar o client e registrar eventos
-function startClient() {
-    client = new Client({
-        authStrategy: new LocalAuth()
-    });
+
+async function startClient() {
+  client = new Client({
+    authStrategy: new LocalAuth(),
+    puppeteer: {
+      executablePath: executablePath(),
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    }
+  });
+
 
     client.on('qr', async qr => {
         console.log('📌 Novo QR Code gerado!');
