@@ -1,16 +1,14 @@
-
-const puppeteer = require('puppeteer');
-const { executablePath } = puppeteer;
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const QRCode = require('qrcode');
 const axios = require('axios');
 const moment = require('moment');
+require('moment/locale/pt-br'); // Carrega o locale português
+moment.locale('pt-br');
 const express = require('express');
 const path = require('path');
 const cors = require('cors');
 const cron = require('node-cron');
-
 
 
 const app = express();
@@ -23,7 +21,10 @@ app.use(cors({
     origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
     allowedHeaders: ['Content-Type']
+
+    
 }));
+
 
 let qrCodeImage = null;
 
@@ -61,6 +62,7 @@ async function getAvailableTimes(barber_id, date) {
 
     const allTimes = ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00'];
     return allTimes.filter(t => !booked.includes(t));
+    
 }
 
 async function getConfig(chave) {
@@ -75,16 +77,11 @@ async function getConfig(chave) {
 }
 
 
-async function startClient() {
-  client = new Client({
-    authStrategy: new LocalAuth(),
-    puppeteer: {
-      executablePath: executablePath(),
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    }
-  });
-
+// Função para iniciar o client e registrar eventos
+function startClient() {
+    client = new Client({
+        authStrategy: new LocalAuth()
+    });
 
     client.on('qr', async qr => {
         console.log('📌 Novo QR Code gerado!');
@@ -368,43 +365,45 @@ if (state.step === 'reschedule_barber') {
 
     state.barber_id = selected.id;
     state.barber_name = selected.nome;
-    state.step = 'reschedule_date';
-    await msg.reply('📅 Para que dia deseja remarcar? (responda no formato DD/MM)\n0 - 🔙 Voltar');
-    return;
+    const diasDisponiveis = Array.from({ length: 7 }, (_, i) => moment().add(i, 'days'));
+    let listaDias = '📅 Escolha o dia para reagendar:\n';
+    diasDisponiveis.forEach((d, i) => {
+    listaDias += `${i + 1} - ${d.format('ddd, DD/MM')}\n`;
+    });
+    listaDias += '0 - 🔙 Voltar';
+
+    state.step = 'reschedule_date_list'; // <--- CORRETO AQUI!
+    state.availableDates = diasDisponiveis.map(d => d.format('YYYY-MM-DD'));
+
+    await msg.reply(listaDias);
+    return; // <--- ADICIONE ESTE RETURN PARA IMPEDIR CONTINUAÇÃO INDESEJADA
 }
 
-if (state.step === 'reschedule_date') {
+if (state.step === 'reschedule_date_list') {
     if (text === '0') {
         resetState(from);
         await msg.reply('🔙 Voltando ao menu.\nEnvie "menu" para recomeçar.');
         return;
     }
 
-    if (!/\d{2}\/\d{2}/.test(text)) {
-        await msg.reply('❌ Data inválida. Use o formato DD/MM ou 0 para voltar.');
+    const index = parseInt(text) - 1;
+    if (isNaN(index) || !state.availableDates[index]) {
+        await msg.reply('❌ Opção inválida.');
         return;
     }
 
-    const [day, month] = text.split('/');
-    const currentYear = moment().year();
-
-    let date = moment(`${currentYear}-${month}-${day}`, 'YYYY-MM-DD');
-
-    if (!date.isValid() || date.isBefore(moment().startOf('day'))) {
-        await msg.reply('❌ Data inválida ou passada. Escolha uma data válida a partir de hoje.');
-        return;
-    }
-
-    state.date = date.format('YYYY-MM-DD');
+    state.date = state.availableDates[index];
     const times = await getAvailableTimes(state.barber_id, state.date);
+
     if (times.length === 0) {
-        await msg.reply('❌ Nenhum horário disponível neste dia. Tente outro dia.');
+        await msg.reply('❌ Nenhum horário disponível neste dia. Tente outro.');
         return;
     }
 
-    let list = `⏰ Horários disponíveis em ${text}:\n`;
+    let list = `⏰ Horários disponíveis para ${moment(state.date).format('DD/MM')}:\n`;
     times.forEach((t, i) => list += `${i + 1} - ${t}\n`);
     list += '0 - 🔙 Voltar';
+
     state.step = 'reschedule_time';
     state.availableTimes = times;
     await msg.reply(list);
@@ -455,7 +454,10 @@ if (state.step === 'reschedule_confirm') {
         try {
             await axios.put(`http://localhost:3000/appointments/${state.selectedAppointment.id}`, {
                 data_hora: `${state.date} ${state.time}`,
-                lembrete_enviado: false // Reinicia lembrete
+                lembrete_enviado: false,
+                cliente_nome: state.selectedAppointment.cliente_nome,
+                cliente_numero: state.selectedAppointment.cliente_numero,
+                barber_id: state.barber_id
             });
 
             await msg.reply(`🔄 Agendamento atualizado para ${moment(state.date).format('DD/MM')} às ${state.time}.`);
@@ -473,64 +475,69 @@ if (state.step === 'reschedule_confirm') {
 
         // ===== ESCOLHA DO BARBEIRO (AGENDAMENTO) =====
         if (state.step === 'barber') {
-            if (text === '0') {
-                resetState(from);
-                await msg.reply('🔙 Voltando ao menu.\nEnvie "menu" para recomeçar.');
-                return;
-            }
+    if (text === '0') {
+        resetState(from);
+        await msg.reply('🔙 Voltando ao menu.\nEnvie "menu" para recomeçar.');
+        return;
+    }
 
-            const barbers = await getBarbers();
-            const selected = barbers.find(b => b.id == text);
-            if (!selected) {
-                await msg.reply('❌ Opção inválida. Escolha um número válido ou 0 para voltar.');
-                return;
-            }
+    const barbers = await getBarbers();
+    const selected = barbers.find(b => b.id == text);
+    if (!selected) {
+        await msg.reply('❌ Opção inválida. Escolha um número válido ou 0 para voltar.');
+        return;
+    }
 
-            state.barber_id = selected.id;
-            state.barber_name = selected.nome;
-            state.step = 'date';
-            await msg.reply(`📅 Para que dia deseja marcar? (responda no formato DD/MM)\n0 - 🔙 Voltar`);
-            return;
-        }
+    state.barber_id = selected.id;
+    state.barber_name = selected.nome;
 
-        // ===== ESCOLHA DA DATA =====
-        if (state.step === 'date') {
-            if (text === '0') {
-                resetState(from);
-                await msg.reply('🔙 Voltando ao menu.\nEnvie "menu" para recomeçar.');
-                return;
-            }
+    // Passo 1: Escolher o dia
+    state.step = 'date'; // Certificando-se de que o passo é para escolher o dia
+    const diasDisponiveis = Array.from({ length: 7 }, (_, i) => moment().add(i, 'days'));
+    let listaDias = '📅 Escolha o dia para agendar:\n';
+    diasDisponiveis.forEach((d, i) => {
+    listaDias += `${i + 1} - ${d.format('ddd, DD/MM')}\n`;
+    });
+    listaDias += '0 - 🔙 Voltar';
 
-            if (!/\d{2}\/\d{2}/.test(text)) {
-                await msg.reply('❌ Data inválida. Use o formato DD/MM ou 0 para voltar.');
-                return;
-            }
+    state.availableDates = diasDisponiveis.map(d => d.format('YYYY-MM-DD'));
 
-            const [day, month] = text.split('/');
-            const currentYear = moment().year();
+    await msg.reply(listaDias);
+    return;  // Retorna após mostrar as opções de dia, para aguardar a escolha do usuário
+}
 
-            let date = moment(`${currentYear}-${month}-${day}`, 'YYYY-MM-DD');
+// ===== ESCOLHA DA DATA =====
+if (state.step === 'date') {
+    if (text === '0') {
+        resetState(from);
+        await msg.reply('🔙 Voltando ao menu.\nEnvie "menu" para recomeçar.');
+        return;
+    }
 
-            if (!date.isValid() || date.isBefore(moment().startOf('day'))) {
-                await msg.reply('❌ Data inválida ou passada. Escolha uma data válida a partir de hoje.');
-                return;
-            }
+    const index = parseInt(text) - 1;
+    if (isNaN(index) || !state.availableDates[index]) {
+        await msg.reply('❌ Opção inválida.');
+        return;
+    }
 
-            state.date = date.format('YYYY-MM-DD');
-            const times = await getAvailableTimes(state.barber_id, state.date);
-            if (times.length === 0) {
-                await msg.reply('❌ Nenhum horário disponível neste dia. Tente outro dia.');
-                return;
-            }
+    state.date = state.availableDates[index];
 
-            let list = `⏰ Horários disponíveis em ${text}:\n`;
-            times.forEach((t, i) => list += `${i + 1} - ${t}\n`);
-            list += '0 - 🔙 Voltar';
-            state.step = 'time';
-            state.availableTimes = times;
-            await msg.reply(list);
-            return;
-        }
+    // Passo 2: Escolher o horário após o dia ser selecionado
+    const times = await getAvailableTimes(state.barber_id, state.date);
+    if (times.length === 0) {
+        await msg.reply('❌ Nenhum horário disponível neste dia. Tente outro.');
+        return;
+    }
+
+    let list = `⏰ Horários disponíveis para ${moment(state.date).format('DD/MM')}:\n`;
+    times.forEach((t, i) => list += `${i + 1} - ${t}\n`);
+    list += '0 - 🔙 Voltar';
+
+    state.step = 'time';
+    state.availableTimes = times;
+    await msg.reply(list);
+    return;
+}
 
         // ===== ESCOLHA DO HORÁRIO =====
         if (state.step === 'time') {
