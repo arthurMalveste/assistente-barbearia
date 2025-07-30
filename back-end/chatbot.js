@@ -415,7 +415,14 @@ if (state.step === 'reschedule_time') {
     }
 
     state.time = state.availableTimes[index];
-    state.step = 'reschedule_confirm';
+const dataHoraEscolhida = moment(`${state.date} ${state.time}`, 'YYYY-MM-DD HH:mm');
+
+if (dataHoraEscolhida.isBefore(moment())) {
+    await msg.reply('❌ Você não pode remarcar para um horário que já passou. Escolha outro.');
+    return;
+}
+
+state.step = 'reschedule_confirm';
 
     await msg.reply(
         `✅ Confirmando nova data:\n` +
