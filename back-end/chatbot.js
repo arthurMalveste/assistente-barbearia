@@ -288,15 +288,22 @@ async function connectToWhatsApp() {
                     const appointments = await getClientAppointments(fromNumber);
                     const futureAppointments = appointments.filter(a => moment(a.data_hora).isAfter(moment()));
 
-                    if (futureAppointments.length > 0) {
-                        futureAppointments.sort((a, b) => new Date(a.data_hora) - new Date(b.data_hora));
+                    // CASO 1: Nenhum agendamento futuro
+                    if (futureAppointments.length === 0) {
+                        await reply('👋 Olá! Sou o assistente virtual da Barbearia. Escolha uma opção:\n\n*1* - 📅 Agendar um horário\n*2* - 💈 Ver serviços e valores\n*3* - 📌 Ver nossa localização\n*4* - 🔄 Gerenciar agendamentos (se houver)');
+                        return;
+                    }
+
+                    // Ordena os agendamentos por data
+                    futureAppointments.sort((a, b) => new Date(a.data_hora) - new Date(b.data_hora));
+                    state.appointments = futureAppointments;
+
+                    // CASO 2: Exatamente UM agendamento futuro (comportamento antigo mantido)
+                    if (futureAppointments.length === 1) {
                         const nextAppointment = futureAppointments[0];
                         const barber = (await getBarbers()).find(b => b.id === nextAppointment.barber_id);
-
-                        // Apenas avança o estado se for uma mudança real
                         advanceState(from, 'reminder_options');
-                        state.appointments = futureAppointments;
-
+                        
                         await reply(
                             `👋 Olá! Você já tem um agendamento no dia ${moment(nextAppointment.data_hora).format('DD/MM')} às ${moment(nextAppointment.data_hora).format('HH:mm')} com o barbeiro ${barber ? barber.nome : 'desconhecido'}.\n\n` +
                             `O que deseja fazer?\n*1* - 🔄 Remarcar este horário\n*2* - ❌ Cancelar este horário\n*3* - 📅 Agendar um novo horário\n*0* - 🔙 Voltar`
@@ -304,8 +311,20 @@ async function connectToWhatsApp() {
                         return;
                     }
 
-                    await reply('👋 Olá! Sou o assistente virtual da Barbearia. Escolha uma opção:\n\n*1* - 📅 Agendar um horário\n*2* - 💈 Ver serviços e valores\n*3* - 📌 Ver nossa localização\n*4* - 🔄 Remarcar ou Cancelar um horário');
-                    return;
+                    // CASO 3: MAIS DE UM agendamento futuro (novo fluxo)
+                    if (futureAppointments.length > 1) {
+                        advanceState(from, 'multi_appointment_menu');
+                        await reply(
+                            `👋 Olá! Verifiquei que você tem *${futureAppointments.length} agendamentos* futuros conosco.\n\n` +
+                            `O que você gostaria de fazer?\n` +
+                            `*1* - 🗒️ Ver meus horários\n` +
+                            `*2* - 🔄 Remarcar um horário\n` +
+                            `*3* - ❌ Cancelar um horário\n` +
+                            `*4* - 📅 Agendar um novo horário\n` +
+                            `*0* - 🔙 Sair`
+                        );
+                        return;
+                    }
                 }
 
                 if (text === '1') {
@@ -351,6 +370,59 @@ async function connectToWhatsApp() {
                     await reply(list + '\n\nDigite o número do agendamento que deseja gerenciar ou *0* para voltar.');
                     return;
                 }
+            }
+            // ===== NOVO FLUXO: MENU PARA MÚLTIPLOS AGENDAMENTOS =====
+            if (state.step === 'multi_appointment_menu') {
+                const barbers = await getBarbers();
+
+                // 1 - Ver meus horários
+                if (text === '1') {
+                    let list = '🗓️ Estes são seus próximos agendamentos:\n';
+                    state.appointments.forEach((a) => {
+                        const barber = barbers.find(b => b.id === a.barber_id);
+                        list += `\n- Com *${barber ? barber.nome : 'Barbeiro'}* em ${moment(a.data_hora).format('dddd, DD/MM/YYYY [às] HH:mm')}`;
+                    });
+                    
+                    // Envia a lista e depois o menu de opções novamente para o usuário não ficar preso
+                    await reply(list);
+                    await reply(`O que você gostaria de fazer agora?\n` +
+                                `*1* - 🗒️ Ver meus horários\n` +
+                                `*2* - 🔄 Remarcar um horário\n` +
+                                `*3* - ❌ Cancelar um horário\n` +
+                                `*4* - 📅 Agendar um novo horário\n` +
+                                `*0* - 🔙 Sair`);
+                    return;
+                }
+                
+                // 2 - Remarcar ou 3 - Cancelar (ambos levam para o mesmo fluxo de seleção)
+                if (text === '2' || text === '3') {
+                    let list = 'Ok. Qual destes agendamentos você deseja gerenciar?\n';
+                    state.appointments.forEach((a, i) => {
+                        const barber = barbers.find(b => b.id === a.barber_id);
+                        list += `\n*${i + 1}* - Com *${barber ? barber.nome : 'Barbeiro'}* em ${moment(a.data_hora).format('DD/MM [às] HH:mm')}`;
+                    });
+                    
+                    // REUTILIZANDO o fluxo de gerenciamento já existente
+                    advanceState(from, 'manage_select_appointment'); 
+                    await reply(list + '\n\nDigite o número do agendamento ou *0* para voltar.');
+                    return;
+                }
+
+                // 4 - Agendar um novo horário
+                if (text === '4') {
+                    let list = 'Ok, vamos agendar um novo horário. Qual barbeiro você prefere?\n\n';
+                    barbers.forEach(b => list += `*${b.id}* - ${b.nome}\n`);
+                    list += '\n*0* - 🔙 Voltar';
+                    
+                    // REUTILIZANDO o fluxo de agendamento já existente
+                    advanceState(from, 'barber'); 
+                    await reply(list);
+                    return;
+                }
+                
+                // Opção de Sair tratada pelo "0" global. Se digitar algo inválido:
+                await reply('❌ Opção inválida. Por favor, escolha um número do menu acima.');
+                return;
             }
 
             // ===== FLUXO DE OPÇÕES DO LEMBRETE INICIAL =====
@@ -522,7 +594,7 @@ async function connectToWhatsApp() {
                             data_hora: `${state.date} ${state.time}`
                         });
                         await reply(`✅ Show! Seu agendamento foi confirmado para ${moment(state.date).format('DD/MM')} às ${state.time} com ${state.barber_name}. Até lá!`);
-                    } catch (err) {
+                     } catch (err) {
                         if (err.response && err.response.status === 409) {
                             await reply('❌ Ops! Este horário acabou de ser ocupado por outra pessoa. Por favor, digite *0* para voltar e tentar novamente escolhendo outro horário.');
                         } else {
@@ -610,8 +682,50 @@ cron.schedule('*/5 * * * *', async () => { // Roda a cada 5 minutos para mais pr
 
                 const clientJid = `${appt.cliente_numero}@s.whatsapp.net`;
 
-                console.log(`[CRON] Enviando lembrete para ${clientJid}`);
+                cron.schedule('*/5 * * * *', async () => {
+    if (connectionState !== 'connected') return;
+
+    console.log('🔔 [CRON] Verificando agendamentos para enviar lembretes...');
+    try {
+        const { data: appointments } = await axios.get('http://localhost:3000/appointments');
+        const now = moment();
+
+        for (const appt of appointments) {
+            if (appt.lembrete_enviado || appt.status === 'cancelado') {
+                continue;
+            }
+
+            const apptTime = moment(appt.data_hora);
+            const oneHourBefore = apptTime.clone().subtract(1, 'hour');
+
+            if (now.isBetween(oneHourBefore, apptTime)) {
+                const clientJid = `${appt.cliente_numero}@s.whatsapp.net`;
+                const msg = `⏰ Olá, ${appt.cliente_nome}! Passando para lembrar do seu horário na barbearia hoje às *${apptTime.format('HH:mm')}*. Te esperamos!`;
+
+                // =================================================================
+                // GUARDA DE SEGURANÇA E LOG DETALHADO - AQUI ESTÁ A MUDANÇA
+                // =================================================================
+                console.log(`[CRON_GUARD] Preparando lembrete para Appointment ID: ${appt.id}. Destinatário no DB: ${clientJid}. Mensagem: "${msg}"`);
+                
+                // Verificação extra de sanidade: não envia se o número for inválido/curto.
+                if (!appt.cliente_numero || appt.cliente_numero.length < 10) {
+                    console.error(`[CRON_FAIL] Lembrete para Appointment ID: ${appt.id} BLOQUEADO devido a número inválido: ${appt.cliente_numero}`);
+                    continue; // Pula para o próximo agendamento
+                }
+                
                 await sock.sendMessage(clientJid, { text: msg });
+                console.log(`[CRON_SUCCESS] Lembrete para Appointment ID: ${appt.id} enviado com sucesso para ${clientJid}.`);
+
+                await axios.put(`http://localhost:3000/appointments/${appt.id}`, {
+                    ...appt,
+                    lembrete_enviado: true
+                });
+            }
+        }
+    } catch (err) {
+        console.error('❌ [CRON] Erro fatal ao executar a tarefa de lembretes:', err.message);
+    }
+});
 
                 // Atualiza o status no banco para não enviar novamente
                 await axios.put(`http://localhost:3000/appointments/${appt.id}`, {
