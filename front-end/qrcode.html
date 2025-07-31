@@ -23,11 +23,25 @@
         img {
             max-width: 250px;
             margin-top: 1rem;
+            /* Garante que o QR Code seja visível, pode ajustar conforme necessário */
+            border: 1px solid #ddd;
+            padding: 5px;
+            box-sizing: border-box;
         }
         .status {
             margin-top: 1rem;
             font-size: 1rem;
             color: #333;
+        }
+        .status-error {
+            color: red;
+        }
+        .status-success {
+            color: green;
+        }
+        /* Esconder a imagem do QR Code quando não há QR */
+        .hidden {
+            display: none;
         }
     </style>
 </head>
@@ -35,7 +49,7 @@
     <div class="card">
         <h2>Escaneie o QR Code para conectar</h2>
         <p>Abra o WhatsApp e vá em Configurações > Aparelhos conectados.</p>
-        <img id="qrImage" src="https://via.placeholder.com/250?text=Carregando..." alt="QR Code">
+        <img id="qrImage" src="" alt="QR Code" class="hidden">
         <div class="status" id="status">Carregando...</div>
     </div>
 
@@ -45,37 +59,53 @@
 
         async function updateQRCode() {
             try {
-                const res = await fetch('http://localhost:3005/qr-code');
+                // CORREÇÃO 1: Alterada a rota para '/qrcode' para corresponder ao backend
+                const res = await fetch('http://localhost:3005/qrcode');
                 const data = await res.json();
+
+                // Limpa classes de status para cada atualização
+                statusDiv.className = 'status';
 
                 // Lógica de status mais detalhada
                 switch (data.status) {
                     case 'connected':
                         img.src = "https://i.imgur.com/g3s32pM.png"; // Imagem de um "check" verde
                         statusDiv.textContent = "✅ Conectado com sucesso!";
+                        img.classList.remove('hidden'); // Mostra a imagem de check
+                        statusDiv.classList.add('status-success');
                         break;
                     case 'qr':
-                        img.src = data.qr;
+                        // CORREÇÃO 2: Acessa a propriedade 'qrCode' do JSON
+                        img.src = data.qrCode;
                         statusDiv.textContent = "📱 Escaneie o QR Code com seu WhatsApp.";
+                        img.classList.remove('hidden'); // Mostra a imagem do QR Code
+                        statusDiv.classList.add('status-warning'); // Se quiser uma cor para QR
                         break;
                     case 'disconnected':
                         img.src = "https://i.imgur.com/zB12O3C.png"; // Imagem de um "X" vermelho
                         statusDiv.textContent = "❌ Desconectado. Tentando reconectar...";
+                        img.classList.remove('hidden'); // Mostra a imagem de X
+                        statusDiv.classList.add('status-error');
                         break;
-                    default:
+                    case 'starting': // Adicionado para cobrir o estado inicial
+                    default: // Se o status não for nenhum dos acima, pode ser "starting" ou outro
                         img.src = "https://i.imgur.com/G5G71G3.gif"; // GIF de loading
                         statusDiv.textContent = "🔌 Conectando ao WhatsApp...";
+                        img.classList.remove('hidden'); // Mostra o GIF
+                        break;
                 }
 
             } catch (err) {
                 console.error("Erro ao buscar status do QR Code:", err);
-                img.src = "https://i.imgur.com/zB12O3C.png";
-                statusDiv.textContent = "❌ Erro. O servidor do chatbot parece estar offline.";
+                img.src = "https://i.imgur.com/zB12O3C.png"; // Imagem de erro
+                statusDiv.textContent = "❌ Erro. O servidor do chatbot parece estar offline ou inacessível.";
+                statusDiv.classList.add('status-error');
+                img.classList.remove('hidden'); // Mostra a imagem de erro
             }
         }
 
-        setInterval(updateQRCode, 3000); // Reduzido para 3 segundos para uma resposta mais rápida
-        updateQRCode();
+        setInterval(updateQRCode, 3000); // Poll a cada 3 segundos
+        updateQRCode(); // Chama uma vez ao carregar a página
     </script>
 </body>
 </html>

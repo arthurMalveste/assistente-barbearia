@@ -1,15 +1,15 @@
-/**
+/*
  * chatbot.js - Versão Profissional Refatorada
  * Supervisor: Gemini AI
  * Data da Revisão: 31/07/2025
  *
  * ######################################################################################
- * ##                                                                                  ##
- * ##  Este arquivo foi completamente reescrito para usar @whiskeysockets/baileys.    ##
- * ##  Esta mudança elimina a dependência do Puppeteer/Chrome, resolvendo problemas    ##
- * ##  de compatibilidade (Windows 11, VPS Linux) e melhorando drasticamente a         ##
- * ##  performance e o consumo de memória. A lógica de negócio original foi mantida.   ##
- * ##                                                                                  ##
+ * ##                                                                                ##
+ * ##  Este arquivo foi completamente reescrito para usar @whiskeysockets/baileys.   ##
+ * ##  Esta mudança elimina a dependência do Puppeteer/Chrome, resolvendo problemas  ##
+ * ##  de compatibilidade (Windows 11, VPS Linux) e melhorando drasticamente a       ##
+ * ##  performance e o consumo de memória. A lógica de negócio original foi mantida. ##
+ * ##                                                                                ##
  * ######################################################################################
  */
 
@@ -25,6 +25,7 @@ const cron = require('node-cron');
 const axios = require('axios');
 const moment = require('moment');
 const sqlite3 = require('sqlite3').verbose();
+const fs = require('fs/promises'); // Adicionado para manipulação de arquivos de sessão
 
 // --- Configuração Inicial ---
 require('moment/locale/pt-br');
@@ -54,8 +55,11 @@ let qrCodeImage = null;
 let connectionState = 'starting'; // Estados: starting, qr, connected, disconnected
 const userState = {}; // Armazena o estado da conversa de cada usuário
 
+// Path para as credenciais do Baileys
+const authInfoPath = 'baileys_auth_info';
+
 // ##################################################################
-// ##               FUNÇÕES AUXILIARES E DE NEGÓCIO              ##
+// ##               FUNÇÕES AUXILIARES E DE NEGÓCIO                ##
 // ##################################################################
 
 // Reseta o estado de um usuário para o menu inicial
@@ -129,7 +133,7 @@ async function getConfig(chave) {
 }
 
 // ##################################################################
-// ##                 NOVA FUNÇÃO: getMenuMessageForState          ##
+// ##               NOVA FUNÇÃO: getMenuMessageForState            ##
 // ##################################################################
 // Esta função é essencial para reconstruir a mensagem do menu do estado anterior.
 // Você precisará mantê-la atualizada conforme adiciona novos passos.
@@ -176,19 +180,19 @@ async function getMenuMessageForState(step, state) {
             return listaDias;
         case 'time':
         case 'reschedule_time':
-             // Requer recarregar os horários disponíveis para ser exato no "voltar"
-             if (!state.barber_id || !state.date) {
+            // Requer recarregar os horários disponíveis para ser exato no "voltar"
+            if (!state.barber_id || !state.date) {
                 return 'Houve um problema para encontrar os horários. Por favor, digite *0* para voltar ao passo anterior.';
-             }
-             const times = await getAvailableTimes(state.barber_id, state.date);
-             if (times.length === 0) {
+            }
+            const times = await getAvailableTimes(state.barber_id, state.date);
+            if (times.length === 0) {
                 return `❌ Nenhum horário disponível para este dia com este barbeiro. Por favor, digite *0* para escolher outro dia ou *0* novamente para escolher outro barbeiro.`;
-             }
-             let listTimes = `⏰ Perfeito! Horários disponíveis para ${moment(state.date).format('DD/MM')}:\n\n`;
-             times.forEach((t, i) => listTimes += `*${i + 1}* - ${t}\n`);
-             listTimes += '\n*0* - 🔙 Voltar';
-             state.availableTimes = times; // Atualiza a lista de horários no estado
-             return listTimes;
+            }
+            let listTimes = `⏰ Perfeito! Horários disponíveis para ${moment(state.date).format('DD/MM')}:\n\n`;
+            times.forEach((t, i) => listTimes += `*${i + 1}* - ${t}\n`);
+            listTimes += '\n*0* - 🔙 Voltar';
+            state.availableTimes = times; // Atualiza a lista de horários no estado
+            return listTimes;
         case 'confirm':
         case 'reschedule_confirm':
             return `✅ Por favor, confirme os detalhes:\n\n*Barbeiro:* ${state.barber_name}\n*Data:* ${moment(state.date).format('dddd, DD/MM/YYYY')}\n*Horário:* ${state.time}\n\n*1* - 👍 Confirmar\n*0* - 👎 Cancelar`;
@@ -199,11 +203,12 @@ async function getMenuMessageForState(step, state) {
 
 
 // ##################################################################
-// ##             NÚCLEO DO BOT - CONEXÃO COM WHATSAPP             ##
+// ##            NÚCLEO DO BOT - CONEXÃO COM WHATSAPP              ##
 // ##################################################################
 
 async function connectToWhatsApp() {
-    const { state, saveCreds } = await useMultiFileAuthState('baileys_auth_info');
+    // Certifique-se de que 'state' e 'saveCreds' são obtidos do caminho correto
+    const { state, saveCreds } = await useMultiFileAuthState(authInfoPath);
     const { version, isLatest } = await fetchLatestBaileysVersion();
     console.log(`🔌 [BAILEYS] Usando versão: ${version.join('.')}, é a mais recente: ${isLatest}`);
 
@@ -230,8 +235,30 @@ async function connectToWhatsApp() {
             console.log(`❌ [CONNECTION] Conexão fechada: ${lastDisconnect.error}, reconectando: ${shouldReconnect}`);
             qrCodeImage = null;
             connectionState = 'disconnected';
+
+            // --- Adição para lidar com credenciais inválidas e forçar novo QR Code ---
+            if (lastDisconnect.error instanceof Boom) {
+                const statusCode = lastDisconnect.error.output.statusCode;
+                // Se o motivo do desconecte for sessão expirada ou logoff (manualmente desconectado)
+                if (statusCode === DisconnectReason.loggedOut || statusCode === DisconnectReason.badSession) {
+                    console.log('🗑️ [AUTH] Sessão inválida ou desconectada. Removendo credenciais para forçar novo QR Code.');
+                    try {
+                        await fs.rm(authInfoPath, { recursive: true, force: true });
+                        console.log('✅ [AUTH] Credenciais antigas removidas com sucesso.');
+                    } catch (err) {
+                        console.error('❌ [AUTH] Erro ao remover credenciais antigas:', err);
+                    }
+                }
+            }
+            // --- Fim da adição ---
+
             if (shouldReconnect) {
                 setTimeout(connectToWhatsApp, 5000); // Tenta reconectar após 5 segundos
+            } else {
+                console.log('🚫 [CONNECTION] Não reconectando automaticamente. Motivo: loggedOut ou badSession. Você precisa reiniciar o bot para obter um novo QR Code.');
+                // Se não deve reconectar automaticamente, pode ser útil sair ou aguardar
+                // uma ação manual (ex: reiniciar o processo do Node).
+                // process.exit(0); // Opcional: para encerrar o bot e forçar reinício manual
             }
         } else if (connection === 'open') {
             console.log('✅ [CONNECTION] Cliente WhatsApp conectado com sucesso!');
@@ -266,7 +293,7 @@ async function connectToWhatsApp() {
         const reply = async (message) => await sock.sendMessage(from, { text: message });
 
         // ##################################################################
-        // ##             MÁQUINA DE ESTADOS DA CONVERSA                   ##
+        // ##              MÁQUINA DE ESTADOS DA CONVERSA                  ##
         // ##################################################################
 
         try {
@@ -565,8 +592,8 @@ async function connectToWhatsApp() {
 
             // Se a mensagem não se encaixa em nenhum estado e não é o menu inicial
             if (state.step !== 'menu') {
-                 await reply('Não entendi. Por favor, escolha uma opção válida para o passo atual, ou digite *0* para voltar.');
-                 // Não reseta o estado aqui, permite que o usuário tente novamente ou use o "0" para voltar
+                await reply('Não entendi. Por favor, escolha uma opção válida para o passo atual, ou digite *0* para voltar.');
+                // Não reseta o estado aqui, permite que o usuário tente novamente ou use o "0" para voltar
             } else {
                 // Se estiver no menu e a entrada for inválida
                 await reply('Desculpe, não entendi. Por favor, diga "oi" ou escolha uma opção do menu:\n\n*1* - 📅 Agendar um horário\n*2* - 💈 Ver serviços e valores\n*3* - 📌 Ver nossa localização\n*4* - 🔄 Remarcar ou Cancelar um horário');
@@ -614,45 +641,42 @@ cron.schedule('*/5 * * * *', async () => { // Roda a cada 5 minutos para mais pr
                 await sock.sendMessage(clientJid, { text: msg });
 
                 // Atualiza o status no banco para não enviar novamente
-                await axios.put(`http://localhost:3000/appointments/${appt.id}`, {
-                    ...appt, // Mantém os dados existentes
-                    lembrete_enviado: true
-                });
+                await axios.put(`http://localhost:3000/appointments/${appt.id}`, { lembrete_enviado: true });
             }
         }
-    } catch (err) {
-        console.error('❌ [CRON] Erro ao executar a tarefa de lembretes:', err.message);
+    } catch (error) {
+        console.error('❌ [CRON] Erro ao enviar lembretes:', error.message);
     }
 });
 
+// ##################################################################
+// ##              ROTAS DA API WEB (EXPRESS)                      ##
+// ##################################################################
 
-// ##################################################################
-// ##            API EXPRESS PARA O FRONT-END (QR CODE)            ##
-// ##################################################################
-app.get('/qr-code', (req, res) => {
-    res.json({
-        connected: connectionState === 'connected',
-        qr: qrCodeImage,
-        status: connectionState
-    });
+// Rota para obter o QR Code
+app.get('/qrcode', (req, res) => {
+    if (connectionState === 'qr' && qrCodeImage) {
+        res.json({ status: 'qr', qrCode: qrCodeImage });
+    } else if (connectionState === 'connected') {
+        res.json({ status: 'connected', message: 'Bot já conectado.' });
+    } else if (connectionState === 'disconnected') {
+        res.status(500).json({ status: 'disconnected', message: 'Bot desconectado. Tente reiniciar o processo.' });
+    } else {
+        res.json({ status: connectionState, message: 'Aguardando QR Code ou conexão.' });
+    }
 });
 
-// ##################################################################
-// ##            SERVE OS ARQUIVOS DO FRONT-END (CORRIGIDO)        ##
-// ##################################################################
+// Rota para verificar o status da conexão
+app.get('/status', (req, res) => {
+    res.json({ status: connectionState });
+});
 
-const publicPath = __dirname;
-console.log(`[EXPRESS] Servindo arquivos estáticos de: ${publicPath}`);
-app.use(express.static(publicPath));
-// ##################################################################
-// ##                     INICIALIZAÇÃO DO SERVIÇO                 ##
-// ##################################################################
+// Inicia o servidor Express
 app.listen(port, () => {
-    console.log(`✅ [EXPRESS] Servidor web rodando em http://localhost:${port}`);
-    console.log(`🖥️  Acesse http://localhost:${port}/qrcode.html para conectar o WhatsApp.`);
-
-    // Inicia a conexão com o WhatsApp
-    connectToWhatsApp().catch(err => {
-        console.error("❌ [BAILEYS] Falha crítica na inicialização do bot:", err);
-    });
+    console.log(`🌐 Servidor web iniciado na porta ${port}`);
+    console.log(`Acesse http://localhost:${port}/qrcode para ver o QR Code.`);
+    connectToWhatsApp(); // Inicia a conexão com o WhatsApp ao iniciar o servidor
 });
+
+// Inicializa a conexão com o WhatsApp
+// connectToWhatsApp(); // Removido daqui, agora é chamado dentro do app.listen
