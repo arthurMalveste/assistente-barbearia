@@ -5,7 +5,7 @@
  *
  * ######################################################################################
  * ##                                                                                  ##
- * ##  Este arquivo foi completamente reescrito para usar @whiskeysockets/baileys.     ##
+ * ##  Este arquivo foi completamente reescrito para usar @whiskeysockets/baileys.    ##
  * ##  Esta mudança elimina a dependência do Puppeteer/Chrome, resolvendo problemas    ##
  * ##  de compatibilidade (Windows 11, VPS Linux) e melhorando drasticamente a         ##
  * ##  performance e o consumo de memória. A lógica de negócio original foi mantida.   ##
@@ -55,13 +55,14 @@ let connectionState = 'starting'; // Estados: starting, qr, connected, disconnec
 const userState = {}; // Armazena o estado da conversa de cada usuário
 
 // ##################################################################
-// ##               FUNÇÕES AUXILIARES E DE NEGÓCIO                ##
+// ##               FUNÇÕES AUXILIARES E DE NEGÓCIO              ##
 // ##################################################################
 
 // Reseta o estado de um usuário para o menu inicial
 function resetState(from) {
     userState[from] = {
         step: 'menu',
+        history: [], // ADICIONADO: Histórico de estados para navegação "voltar"
         barber_id: null,
         barber_name: null,
         date: null,
@@ -71,17 +72,39 @@ function resetState(from) {
     };
 }
 
+// Função para avançar no estado, salvando o estado atual no histórico
+function advanceState(from, nextStep) {
+    const state = userState[from];
+    // Evita adicionar o mesmo estado repetidamente e 'menu' no histórico
+    if (state.step !== nextStep && state.step !== 'menu') {
+        state.history.push(state.step);
+    }
+    state.step = nextStep;
+    console.log(`[STATE] ${from} - Avançando para: ${nextStep}. Histórico: ${state.history}`); // Para debug
+}
+
+// Função para retroceder um estado
+function goBackState(from) {
+    const state = userState[from];
+    if (state.history.length > 0) {
+        state.step = state.history.pop(); // Remove e retorna o último estado
+    } else {
+        state.step = 'menu'; // Se não há histórico, volta para o menu principal
+    }
+    console.log(`[STATE] ${from} - Voltando para: ${state.step}. Histórico: ${state.history}`); // Para debug
+}
+
 // Busca barbeiros da API (server.js)
 async function getBarbers() {
     const res = await axios.get('http://localhost:3000/barbers');
     return res.data;
 }
 
-// Busca agendamentos de um cliente específico
+// --- Busca agendamentos de um cliente específico ---
 async function getClientAppointments(phone) {
     const res = await axios.get('http://localhost:3000/appointments');
     // Garante que a comparação de números seja robusta
-    return res.data.filter(a => a.cliente_numero.includes(phone));
+    return res.data.filter(a => a.cliente_numero && a.cliente_numero.includes(phone));
 }
 
 // Busca horários disponíveis para um barbeiro em uma data
@@ -106,7 +129,77 @@ async function getConfig(chave) {
 }
 
 // ##################################################################
-// ##              NÚCLEO DO BOT - CONEXÃO COM WHATSAPP             ##
+// ##                 NOVA FUNÇÃO: getMenuMessageForState          ##
+// ##################################################################
+// Esta função é essencial para reconstruir a mensagem do menu do estado anterior.
+// Você precisará mantê-la atualizada conforme adiciona novos passos.
+async function getMenuMessageForState(step, state) {
+    switch (step) {
+        case 'menu':
+            return '👋 Olá! Sou o assistente virtual da Barbearia. Escolha uma opção:\n\n*1* - 📅 Agendar um horário\n*2* - 💈 Ver serviços e valores\n*3* - 📌 Ver nossa localização\n*4* - 🔄 Remarcar ou Cancelar um horário';
+        case 'reminder_options':
+            // Esta parte assume que 'nextAppointment' e 'barber' estariam no estado
+            // Para simplicidade, podemos redirecionar ou dar um menu mais genérico
+            return 'O que deseja fazer?\n*1* - 🔄 Remarcar este horário\n*2* - ❌ Cancelar este horário\n*3* - 📅 Agendar um novo horário\n*0* - 🔙 Voltar';
+        case 'manage_select_appointment':
+            // Re-gerar a lista de agendamentos é complexo aqui sem re-chamar getClientAppointments
+            // Uma mensagem mais genérica é ok para o "voltar" aqui
+            const appointments = await getClientAppointments(state.selectedAppointment ? state.selectedAppointment.cliente_numero : state.fromNumber); // Tenta usar o número do cliente
+            const futureAppointments = appointments.filter(a => moment(a.data_hora).isAfter(moment()));
+            state.appointments = futureAppointments; // Atualiza para o caso de ter mudado
+            let list = 'Você tem os seguintes agendamentos:\n';
+            const barbers = await getBarbers();
+            state.appointments.forEach((a, i) => {
+                const barber = barbers.find(b => b.id === a.barber_id);
+                list += `\n*${i + 1}* - ${barber ? barber.nome : 'Barbeiro'} em ${moment(a.data_hora).format('ddd, DD/MM [às] HH:mm')}`;
+            });
+            return list + '\n\nDigite o número do agendamento que deseja gerenciar ou *0* para voltar.';
+        case 'manage_select_action':
+            return `O que deseja fazer com o agendamento de ${moment(state.selectedAppointment.data_hora).format('DD/MM [às] HH:mm')}?\n\n*1* - 🔄 Remarcar\n*2* - ❌ Cancelar\n\n*0* - 🔙 Voltar`;
+        case 'barber':
+        case 'reschedule_barber':
+            const allBarbers = await getBarbers();
+            let listBarbers = 'Qual barbeiro você prefere?\n\n';
+            allBarbers.forEach(b => listBarbers += `*${b.id}* - ${b.nome}\n`);
+            listBarbers += '\n*0* - 🔙 Voltar ao menu';
+            return listBarbers;
+        case 'date':
+        case 'reschedule_date':
+            const diasDisponiveis = Array.from({ length: 7 }, (_, i) => moment().add(i, 'days'));
+            let listaDias = '📅 Ótimo! Agora escolha o dia:\n\n';
+            diasDisponiveis.forEach((d, i) => {
+                listaDias += `*${i + 1}* - ${d.format('dddd, DD/MM')}\n`;
+            });
+            listaDias += '\n*0* - 🔙 Voltar';
+            // Re-define availableDates para que o usuário possa selecionar novamente
+            state.availableDates = diasDisponiveis.map(d => d.format('YYYY-MM-DD'));
+            return listaDias;
+        case 'time':
+        case 'reschedule_time':
+             // Requer recarregar os horários disponíveis para ser exato no "voltar"
+             if (!state.barber_id || !state.date) {
+                return 'Houve um problema para encontrar os horários. Por favor, digite *0* para voltar ao passo anterior.';
+             }
+             const times = await getAvailableTimes(state.barber_id, state.date);
+             if (times.length === 0) {
+                return `❌ Nenhum horário disponível para este dia com este barbeiro. Por favor, digite *0* para escolher outro dia ou *0* novamente para escolher outro barbeiro.`;
+             }
+             let listTimes = `⏰ Perfeito! Horários disponíveis para ${moment(state.date).format('DD/MM')}:\n\n`;
+             times.forEach((t, i) => listTimes += `*${i + 1}* - ${t}\n`);
+             listTimes += '\n*0* - 🔙 Voltar';
+             state.availableTimes = times; // Atualiza a lista de horários no estado
+             return listTimes;
+        case 'confirm':
+        case 'reschedule_confirm':
+            return `✅ Por favor, confirme os detalhes:\n\n*Barbeiro:* ${state.barber_name}\n*Data:* ${moment(state.date).format('dddd, DD/MM/YYYY')}\n*Horário:* ${state.time}\n\n*1* - 👍 Confirmar\n*0* - 👎 Cancelar`;
+        default:
+            return 'Envie "oi" ou "menu" para ver as opções.';
+    }
+}
+
+
+// ##################################################################
+// ##             NÚCLEO DO BOT - CONEXÃO COM WHATSAPP             ##
 // ##################################################################
 
 async function connectToWhatsApp() {
@@ -162,22 +255,33 @@ async function connectToWhatsApp() {
         const from = msg.key.remoteJid;
         const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || '').trim().toLowerCase();
         const fromNumber = from.split('@')[0]; // Número puro do cliente
-        
+
         // Se o usuário não tem um estado, inicializa
         if (!userState[from]) {
             resetState(from);
         }
-        
+
         const state = userState[from];
+        state.fromNumber = fromNumber; // Armazena o número no estado para fácil acesso na função de menu
         const reply = async (message) => await sock.sendMessage(from, { text: message });
 
         // ##################################################################
-        // ##                 MÁQUINA DE ESTADOS DA CONVERSA               ##
+        // ##             MÁQUINA DE ESTADOS DA CONVERSA                   ##
         // ##################################################################
-        // A lógica abaixo é a sua lógica original, com o método de resposta
-        // trocado de 'msg.reply' para a nossa função 'reply' padronizada.
 
         try {
+            // Tratamento global para "0" ou "voltar"
+            if (text === '0' || text === 'voltar') {
+                if (state.step === 'menu' && state.history.length === 0) { // Já está no menu inicial sem histórico
+                    await reply('Você já está no menu principal. Escolha uma opção ou diga "oi" para ver o menu novamente.');
+                } else {
+                    goBackState(from);
+                    // Reconstroi a mensagem do estado anterior para guiar o usuário
+                    await reply(`Ok, voltando. ${await getMenuMessageForState(state.step, state)}`);
+                }
+                return; // Importante para não processar a mensagem no fluxo normal
+            }
+
             // ===== MENU PRINCIPAL E SAUDAÇÃO =====
             if (state.step === 'menu') {
                 if (['oi', 'olá', 'ola', 'menu', 'oi!', 'ola!'].includes(text)) {
@@ -188,13 +292,14 @@ async function connectToWhatsApp() {
                         futureAppointments.sort((a, b) => new Date(a.data_hora) - new Date(b.data_hora));
                         const nextAppointment = futureAppointments[0];
                         const barber = (await getBarbers()).find(b => b.id === nextAppointment.barber_id);
-                        
-                        state.step = 'reminder_options';
+
+                        // Apenas avança o estado se for uma mudança real
+                        advanceState(from, 'reminder_options');
                         state.appointments = futureAppointments;
-                        
+
                         await reply(
                             `👋 Olá! Você já tem um agendamento no dia ${moment(nextAppointment.data_hora).format('DD/MM')} às ${moment(nextAppointment.data_hora).format('HH:mm')} com o barbeiro ${barber ? barber.nome : 'desconhecido'}.\n\n` +
-                            `O que deseja fazer?\n*1* - 🔄 Remarcar este horário\n*2* - ❌ Cancelar este horário\n*3* - 📅 Agendar um novo horário\n*0* - 🔙 Sair`
+                            `O que deseja fazer?\n*1* - 🔄 Remarcar este horário\n*2* - ❌ Cancelar este horário\n*3* - 📅 Agendar um novo horário\n*0* - 🔙 Voltar`
                         );
                         return;
                     }
@@ -207,21 +312,21 @@ async function connectToWhatsApp() {
                     const barbers = await getBarbers();
                     let list = 'Qual barbeiro você prefere?\n\n';
                     barbers.forEach(b => list += `*${b.id}* - ${b.nome}\n`);
-                    list += '\n*0* - 🔙 Voltar ao menu';
-                    state.step = 'barber';
+                    list += '\n*0* - 🔙 Voltar';
+                    advanceState(from, 'barber'); // <-- Usar advanceState
                     await reply(list);
                     return;
                 }
                 if (text === '2') {
                     const descricao = await getConfig('descricao') || 'Informação sobre valores não disponível no momento.';
                     await reply(descricao);
-                    resetState(from);
+                    resetState(from); // Volta para o menu após exibir a informação
                     return;
                 }
                 if (text === '3') {
                     const endereco = await getConfig('endereco') || 'Endereço não disponível no momento.';
                     await reply(endereco);
-                    resetState(from);
+                    resetState(from); // Volta para o menu após exibir a informação
                     return;
                 }
                 if (text === '4') {
@@ -233,7 +338,7 @@ async function connectToWhatsApp() {
                         resetState(from);
                         return;
                     }
-                    
+
                     state.appointments = futureAppointments;
                     let list = 'Você tem os seguintes agendamentos:\n';
                     const barbers = await getBarbers();
@@ -241,8 +346,8 @@ async function connectToWhatsApp() {
                         const barber = barbers.find(b => b.id === a.barber_id);
                         list += `\n*${i + 1}* - ${barber ? barber.nome : 'Barbeiro'} em ${moment(a.data_hora).format('ddd, DD/MM [às] HH:mm')}`;
                     });
-                    
-                    state.step = 'manage_select_appointment';
+
+                    advanceState(from, 'manage_select_appointment'); // <-- Usar advanceState
                     await reply(list + '\n\nDigite o número do agendamento que deseja gerenciar ou *0* para voltar.');
                     return;
                 }
@@ -250,56 +355,56 @@ async function connectToWhatsApp() {
 
             // ===== FLUXO DE OPÇÕES DO LEMBRETE INICIAL =====
             if (state.step === 'reminder_options') {
-                 if (text === '0') { resetState(from); await reply('Ok, saindo. Envie "menu" para começar de novo.'); return; }
-                 if (text === '1') { // Remarcar
+                // "0" ou "voltar" já é tratado globalmente
+                if (text === '1') { // Remarcar
                     state.selectedAppointment = state.appointments[0];
-                    state.step = 'reschedule_barber';
+                    advanceState(from, 'reschedule_barber'); // <-- Usar advanceState
                     const barbers = await getBarbers();
                     let list = 'Com qual barbeiro você gostaria de remarcar?\n\n';
                     barbers.forEach(b => list += `*${b.id}* - ${b.nome}\n`);
                     list += '\n*0* - 🔙 Cancelar';
                     await reply(list);
                     return;
-                 }
-                 if (text === '2') { // Cancelar
+                }
+                if (text === '2') { // Cancelar
                     const appt = state.appointments[0];
                     await axios.delete(`http://localhost:3000/appointments/${appt.id}`);
                     await reply(`✅ Agendamento do dia ${moment(appt.data_hora).format('DD/MM [às] HH:mm')} foi cancelado com sucesso.`);
-                    resetState(from);
+                    resetState(from); // Após a ação, volta ao menu principal
                     return;
-                 }
-                 if (text === '3') { // Agendar outro
-                    state.step = 'barber';
+                }
+                if (text === '3') { // Agendar outro
+                    advanceState(from, 'barber'); // <-- Usar advanceState
                     const barbers = await getBarbers();
                     let list = 'Ok. Qual barbeiro você prefere para o novo agendamento?\n\n';
                     barbers.forEach(b => list += `*${b.id}* - ${b.nome}\n`);
                     list += '\n*0* - 🔙 Voltar ao menu';
                     await reply(list);
                     return;
-                 }
-                 await reply('❌ Opção inválida. Por favor, escolha uma das opções acima.');
-                 return;
+                }
+                await reply('❌ Opção inválida. Por favor, escolha uma das opções acima ou *0* para voltar.');
+                return;
             }
 
             // ===== FLUXO DE GERENCIAMENTO (ESCOLHA DO AGENDAMENTO) =====
             if (state.step === 'manage_select_appointment') {
-                if (text === '0') { resetState(from); await reply('Ok, voltando ao menu. Envie "menu" para recomeçar.'); return; }
+                // "0" ou "voltar" já é tratado globalmente
                 const index = parseInt(text) - 1;
                 if (isNaN(index) || !state.appointments[index]) {
-                    await reply('❌ Opção inválida. Escolha um número da lista.');
+                    await reply('❌ Opção inválida. Escolha um número da lista ou *0* para voltar.');
                     return;
                 }
                 state.selectedAppointment = state.appointments[index];
-                state.step = 'manage_select_action';
+                advanceState(from, 'manage_select_action'); // <-- Usar advanceState
                 await reply(`O que deseja fazer com o agendamento de ${moment(state.selectedAppointment.data_hora).format('DD/MM [às] HH:mm')}?\n\n*1* - 🔄 Remarcar\n*2* - ❌ Cancelar\n\n*0* - 🔙 Voltar`);
                 return;
             }
-            
+
             // ===== FLUXO DE GERENCIAMENTO (ESCOLHA DA AÇÃO) =====
             if (state.step === 'manage_select_action') {
-                if (text === '0') { resetState(from); await reply('Ok, voltando ao menu. Envie "menu" para recomeçar.'); return; }
+                // "0" ou "voltar" já é tratado globalmente
                 if (text === '1') { // Remarcar
-                    state.step = 'reschedule_barber';
+                    advanceState(from, 'reschedule_barber'); // <-- Usar advanceState
                     const barbers = await getBarbers();
                     let list = 'Com qual barbeiro você gostaria de remarcar?\n\n';
                     barbers.forEach(b => list += `*${b.id}* - ${b.nome}\n`);
@@ -310,28 +415,28 @@ async function connectToWhatsApp() {
                 if (text === '2') { // Cancelar
                     await axios.delete(`http://localhost:3000/appointments/${state.selectedAppointment.id}`);
                     await reply(`✅ Agendamento do dia ${moment(state.selectedAppointment.data_hora).format('DD/MM [às] HH:mm')} foi cancelado com sucesso.`);
-                    resetState(from);
+                    resetState(from); // Após a ação, volta ao menu principal
                     return;
                 }
-                await reply('❌ Opção inválida. Escolha 1 para remarcar ou 2 para cancelar.');
+                await reply('❌ Opção inválida. Escolha 1 para remarcar ou 2 para cancelar, ou *0* para voltar.');
                 return;
             }
-            
+
             // ===== FLUXO UNIFICADO DE ESCOLHA DE BARBEIRO (AGENDAR E REMARCAR) =====
             const barberStep = state.step === 'barber' || state.step === 'reschedule_barber';
             if (barberStep) {
-                if (text === '0') { resetState(from); await reply('Ok, cancelado. Envie "menu" para recomeçar.'); return; }
-                
+                // "0" ou "voltar" já é tratado globalmente
+
                 const barbers = await getBarbers();
                 const selected = barbers.find(b => b.id == text);
                 if (!selected) {
-                    await reply('❌ Barbeiro inválido. Por favor, escolha um número da lista.');
+                    await reply('❌ Barbeiro inválido. Por favor, escolha um número da lista ou *0* para voltar.');
                     return;
                 }
 
                 state.barber_id = selected.id;
                 state.barber_name = selected.nome;
-                
+
                 const diasDisponiveis = Array.from({ length: 7 }, (_, i) => moment().add(i, 'days'));
                 let listaDias = '📅 Ótimo! Agora escolha o dia:\n\n';
                 diasDisponiveis.forEach((d, i) => {
@@ -339,29 +444,28 @@ async function connectToWhatsApp() {
                 });
                 listaDias += '\n*0* - 🔙 Voltar';
 
-                state.step = state.step === 'barber' ? 'date' : 'reschedule_date';
+                advanceState(from, state.step === 'barber' ? 'date' : 'reschedule_date'); // <-- Usar advanceState
                 state.availableDates = diasDisponiveis.map(d => d.format('YYYY-MM-DD'));
-                
+
                 await reply(listaDias);
                 return;
             }
-            
+
             // ===== FLUXO UNIFICADO DE ESCOLHA DE DATA (AGENDAR E REMARCAR) =====
             const dateStep = state.step === 'date' || state.step === 'reschedule_date';
             if (dateStep) {
-                if (text === '0') { resetState(from); await reply('Ok, cancelado. Envie "menu" para recomeçar.'); return; }
-                
+                // "0" ou "voltar" já é tratado globalmente
+
                 const index = parseInt(text) - 1;
                 if (isNaN(index) || !state.availableDates[index]) {
-                    await reply('❌ Dia inválido. Por favor, escolha um número da lista.');
+                    await reply('❌ Dia inválido. Por favor, escolha um número da lista ou *0* para voltar.');
                     return;
                 }
                 state.date = state.availableDates[index];
-                
+
                 const times = await getAvailableTimes(state.barber_id, state.date);
                 if (times.length === 0) {
-                    state.step = state.step === 'date' ? 'barber' : 'reschedule_barber'; // Volta um passo
-                    await reply('❌ Nenhum horário disponível para este dia com este barbeiro. Por favor, escolha outro dia ou volte para escolher outro barbeiro.');
+                    await reply('❌ Nenhum horário disponível para este dia com este barbeiro. Por favor, digite *0* para escolher outro dia ou *0* novamente para escolher outro barbeiro.');
                     return;
                 }
 
@@ -369,7 +473,7 @@ async function connectToWhatsApp() {
                 times.forEach((t, i) => list += `*${i + 1}* - ${t}\n`);
                 list += '\n*0* - 🔙 Voltar';
 
-                state.step = state.step === 'date' ? 'time' : 'reschedule_time';
+                advanceState(from, state.step === 'date' ? 'time' : 'reschedule_time'); // <-- Usar advanceState
                 state.availableTimes = times;
                 await reply(list);
                 return;
@@ -378,22 +482,22 @@ async function connectToWhatsApp() {
             // ===== FLUXO UNIFICADO DE ESCOLHA DE HORÁRIO (AGENDAR E REMARCAR) =====
             const timeStep = state.step === 'time' || state.step === 'reschedule_time';
             if (timeStep) {
-                if (text === '0') { resetState(from); await reply('Ok, cancelado. Envie "menu" para recomeçar.'); return; }
-                
+                // "0" ou "voltar" já é tratado globalmente
+
                 const index = parseInt(text) - 1;
                 if (isNaN(index) || !state.availableTimes[index]) {
-                    await reply('❌ Horário inválido. Escolha um número da lista.');
+                    await reply('❌ Horário inválido. Escolha um número da lista ou *0* para voltar.');
                     return;
                 }
                 state.time = state.availableTimes[index];
 
                 const dataHoraEscolhida = moment(`${state.date} ${state.time}`, 'YYYY-MM-DD HH:mm');
                 if (dataHoraEscolhida.isBefore(moment())) {
-                    await reply('❌ Você não pode agendar para um horário que já passou. Por favor, escolha outro horário.');
+                    await reply('❌ Você não pode agendar para um horário que já passou. Por favor, escolha outro horário ou *0* para voltar.');
                     return;
                 }
 
-                state.step = state.step === 'time' ? 'confirm' : 'reschedule_confirm';
+                advanceState(from, state.step === 'time' ? 'confirm' : 'reschedule_confirm'); // <-- Usar advanceState
                 await reply(
                     `✅ Por favor, confirme os detalhes:\n\n` +
                     `*Barbeiro:* ${state.barber_name}\n` +
@@ -406,8 +510,8 @@ async function connectToWhatsApp() {
 
             // ===== CONFIRMAÇÃO FINAL DE AGENDAMENTO =====
             if (state.step === 'confirm') {
-                if (text === '0') { resetState(from); await reply('❌ Agendamento cancelado. Envie "menu" para recomeçar.'); return; }
-                
+                // "0" ou "voltar" já é tratado globalmente
+
                 if (text === '1') {
                     try {
                         const nomeCliente = msg.pushName || 'Cliente WhatsApp';
@@ -420,21 +524,23 @@ async function connectToWhatsApp() {
                         await reply(`✅ Show! Seu agendamento foi confirmado para ${moment(state.date).format('DD/MM')} às ${state.time} com ${state.barber_name}. Até lá!`);
                     } catch (err) {
                         if (err.response && err.response.status === 409) {
-                            await reply('❌ Ops! Este horário acabou de ser ocupado por outra pessoa. Por favor, tente novamente escolhendo outro horário.');
+                            await reply('❌ Ops! Este horário acabou de ser ocupado por outra pessoa. Por favor, digite *0* para voltar e tentar novamente escolhendo outro horário.');
                         } else {
-                            await reply('❌ Ocorreu um erro ao salvar seu agendamento. Por favor, tente novamente em alguns instantes.');
+                            await reply('❌ Ocorreu um erro ao salvar seu agendamento. Por favor, tente novamente em alguns instantes. Se o problema persistir, contate o suporte.');
                             console.error("Erro ao agendar:", err);
                         }
                     }
-                    resetState(from);
+                    resetState(from); // Conclui o fluxo e volta ao menu principal
                     return;
                 }
+                await reply('❌ Opção inválida. Digite *1* para confirmar ou *0* para cancelar.');
+                return;
             }
 
             // ===== CONFIRMAÇÃO FINAL DE REMARCAÇÃO =====
             if (state.step === 'reschedule_confirm') {
-                if (text === '0') { resetState(from); await reply('❌ Remarcação cancelada. Envie "menu" para recomeçar.'); return; }
-                
+                // "0" ou "voltar" já é tratado globalmente
+
                 if (text === '1') {
                     try {
                         await axios.put(`http://localhost:3000/appointments/${state.selectedAppointment.id}`, {
@@ -447,15 +553,27 @@ async function connectToWhatsApp() {
                         });
                         await reply(`✅ Agendamento remarcado com sucesso para ${moment(state.date).format('DD/MM')} às ${state.time} com ${state.barber_name}.`);
                     } catch (err) {
-                        await reply('❌ Ocorreu um erro ao tentar remarcar. Por favor, tente novamente.');
+                        await reply('❌ Ocorreu um erro ao tentar remarcar. Por favor, tente novamente ou digite *0* para voltar.');
                         console.error("Erro ao remarcar:", err);
                     }
-                    resetState(from);
+                    resetState(from); // Conclui o fluxo e volta ao menu principal
                     return;
                 }
+                await reply('❌ Opção inválida. Digite *1* para confirmar ou *0* para cancelar.');
+                return;
             }
-        
-        } catch(error) {
+
+            // Se a mensagem não se encaixa em nenhum estado e não é o menu inicial
+            if (state.step !== 'menu') {
+                 await reply('Não entendi. Por favor, escolha uma opção válida para o passo atual, ou digite *0* para voltar.');
+                 // Não reseta o estado aqui, permite que o usuário tente novamente ou use o "0" para voltar
+            } else {
+                // Se estiver no menu e a entrada for inválida
+                await reply('Desculpe, não entendi. Por favor, diga "oi" ou escolha uma opção do menu:\n\n*1* - 📅 Agendar um horário\n*2* - 💈 Ver serviços e valores\n*3* - 📌 Ver nossa localização\n*4* - 🔄 Remarcar ou Cancelar um horário');
+            }
+
+
+        } catch (error) {
             console.error(`[ERROR_HANDLER] Erro ao processar mensagem do usuário ${fromNumber}:`, error);
             await reply("🤖 Desculpe, encontrei um erro interno. Tente novamente em instantes. Se o problema persistir, contate o suporte.");
             resetState(from);
@@ -465,13 +583,13 @@ async function connectToWhatsApp() {
 
 
 // ##################################################################
-// ##                   ROTINA DE LEMBRETES (CRON)                 ##
+// ##              ROTINA DE LEMBRETES (CRON)                      ##
 // ##################################################################
 cron.schedule('*/5 * * * *', async () => { // Roda a cada 5 minutos para mais precisão
     if (connectionState !== 'connected') {
         return; // Bot não está conectado, não faz nada
     }
-    
+
     console.log('🔔 [CRON] Verificando agendamentos para enviar lembretes...');
     try {
         const { data: appointments } = await axios.get('http://localhost:3000/appointments');
@@ -489,9 +607,9 @@ cron.schedule('*/5 * * * *', async () => { // Roda a cada 5 minutos para mais pr
             // Envia lembrete se estivermos na janela de 1 hora antes do agendamento
             if (now.isBetween(oneHourBefore, apptTime)) {
                 const msg = `⏰ Olá, ${appt.cliente_nome}! Passando para lembrar do seu horário na barbearia hoje às *${apptTime.format('HH:mm')}*. Te esperamos!`;
-                
+
                 const clientJid = `${appt.cliente_numero}@s.whatsapp.net`;
-                
+
                 console.log(`[CRON] Enviando lembrete para ${clientJid}`);
                 await sock.sendMessage(clientJid, { text: msg });
 
@@ -520,19 +638,19 @@ app.get('/qr-code', (req, res) => {
 });
 
 // ##################################################################
-// ##          SERVE OS ARQUIVOS DO FRONT-END (CORRIGIDO)          ##
+// ##            SERVE OS ARQUIVOS DO FRONT-END (CORRIGIDO)        ##
 // ##################################################################
 
 const publicPath = __dirname;
 console.log(`[EXPRESS] Servindo arquivos estáticos de: ${publicPath}`);
 app.use(express.static(publicPath));
 // ##################################################################
-// ##                    INICIALIZAÇÃO DO SERVIÇO                  ##
+// ##                     INICIALIZAÇÃO DO SERVIÇO                 ##
 // ##################################################################
 app.listen(port, () => {
     console.log(`✅ [EXPRESS] Servidor web rodando em http://localhost:${port}`);
     console.log(`🖥️  Acesse http://localhost:${port}/qrcode.html para conectar o WhatsApp.`);
-    
+
     // Inicia a conexão com o WhatsApp
     connectToWhatsApp().catch(err => {
         console.error("❌ [BAILEYS] Falha crítica na inicialização do bot:", err);
