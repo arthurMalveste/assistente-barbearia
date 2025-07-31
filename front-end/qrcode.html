@@ -40,28 +40,41 @@
     </div>
 
     <script>
+        const img = document.getElementById('qrImage');
+        const statusDiv = document.getElementById('status');
+
         async function updateQRCode() {
             try {
                 const res = await fetch('http://localhost:3005/qr-code');
-
                 const data = await res.json();
 
-                const img = document.getElementById('qrImage');
-                const status = document.getElementById('status');
-
-                if (data.connected) {
-                    img.src = "https://via.placeholder.com/250?text=Conectado";
-                    status.textContent = "✅ Conectado com sucesso!";
-                } else {
-                    img.src = data.qr || "https://via.placeholder.com/250?text=Gerando...";
-                    status.textContent = "📌 Aguardando conexão...";
+                // Lógica de status mais detalhada
+                switch (data.status) {
+                    case 'connected':
+                        img.src = "https://i.imgur.com/g3s32pM.png"; // Imagem de um "check" verde
+                        statusDiv.textContent = "✅ Conectado com sucesso!";
+                        break;
+                    case 'qr':
+                        img.src = data.qr;
+                        statusDiv.textContent = "📱 Escaneie o QR Code com seu WhatsApp.";
+                        break;
+                    case 'disconnected':
+                        img.src = "https://i.imgur.com/zB12O3C.png"; // Imagem de um "X" vermelho
+                        statusDiv.textContent = "❌ Desconectado. Tentando reconectar...";
+                        break;
+                    default:
+                        img.src = "https://i.imgur.com/G5G71G3.gif"; // GIF de loading
+                        statusDiv.textContent = "🔌 Conectando ao WhatsApp...";
                 }
+
             } catch (err) {
-                console.error(err);
+                console.error("Erro ao buscar status do QR Code:", err);
+                img.src = "https://i.imgur.com/zB12O3C.png";
+                statusDiv.textContent = "❌ Erro. O servidor do chatbot parece estar offline.";
             }
         }
 
-        setInterval(updateQRCode, 5000); // Atualiza a cada 5 segundos
+        setInterval(updateQRCode, 3000); // Reduzido para 3 segundos para uma resposta mais rápida
         updateQRCode();
     </script>
 </body>
