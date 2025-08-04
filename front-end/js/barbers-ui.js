@@ -4,7 +4,7 @@
 
 // --- Constantes de Configuração ---
 // Chave da "Barbearia Cliente 2" para testes.
-const apiKey = '03ba3d1a-485b-40a0-bdcb-08f2b2a308ed';
+const apiKey = '786c30c9-b215-4e00-94f6-929a6a13acf8';
 const BASE_URL = 'http://localhost:3000';
 
 // --- Elementos do DOM ---

@@ -40,10 +40,10 @@ module.exports = {
       max_memory_restart: '300M',
       env: {
         NODE_ENV: 'production',
-        API_KEY: '03ba3d1a-485b-40a0-bdcb-08f2b2a308ed', // ⬅️ Chave da segunda barbearia
+        API_KEY: '786c30c9-b215-4e00-94f6-929a6a13acf8', // ⬅️ Chave da segunda barbearia
         BARBEARIA_ID: '2',
         AUTH_INFO_PATH: 'baileys_auth_info_barbearia_2',
-        PORT: 3006
+        PORT: 3005
       }
     }
   ]

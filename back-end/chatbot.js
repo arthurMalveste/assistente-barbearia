@@ -29,7 +29,7 @@ require('moment/locale/pt-br');
 moment.locale('pt-br');
 
 // Variáveis de Configuração Multi-tenant
-const API_KEY = process.env.API_KEY || '03ba3d1a-485b-40a0-bdcb-08f2b2a308ed';
+const API_KEY = process.env.API_KEY || '786c30c9-b215-4e00-94f6-929a6a13acf8';
 const PORT = process.env.PORT || 3005;
 const AUTH_INFO_PATH = process.env.AUTH_INFO_PATH || 'baileys_auth_info_multi';
 
@@ -213,7 +213,8 @@ async function getMenuMessageForState(step, state) {
         case 'reschedule_barber':
             await reloadBarbers(); // Garante que a lista está atualizada
             let listBarbers = 'Qual barbeiro você prefere?\n\n';
-            barbers.forEach(b => listBarbers += `*${b.id}* - ${b.nome}\n`);
+            // # CORREÇÃO: Usar um índice local para a lista de barbeiros
+            barbers.forEach((b, i) => listBarbers += `*${i + 1}* - ${b.nome}\n`);
             listBarbers += '\n*0* - 🔙 Voltar ao menu';
             return listBarbers;
         case 'date':
@@ -381,8 +382,31 @@ async function connectToWhatsApp() {
                     }
                 }
                 if (text === '1') {
+                    await reloadBarbers();
+                    // # CORREÇÃO: Lógica para exibir barbeiros com índice local
+                    if (barbers.length === 1) {
+                        const selectedBarber = barbers[0];
+                        state.barber_id = selectedBarber.id;
+                        state.barber_name = selectedBarber.nome;
+                        advanceState(from, 'date');
+                        const diasDisponiveis = Array.from({ length: 7 }, (_, i) => moment().add(i, 'days')).filter(d => d.isSameOrAfter(moment(), 'day'));
+                        let listaDias = '📅 Ótimo! Agora escolha o dia:\n\n';
+                        diasDisponiveis.forEach((d, i) => {
+                            listaDias += `*${i + 1}* - ${d.format('dddd, DD/MM')}\n`;
+                        });
+                        listaDias += '\n*0* - 🔙 Voltar';
+                        state.availableDates = diasDisponiveis.map(d => d.format('YYYY-MM-DD'));
+                        await reply(`Você só tem uma opção de barbeiro: ${state.barber_name}. Perfeito! ${listaDias}`);
+                        return;
+                    }
+                    
                     let list = 'Qual barbeiro você prefere?\n\n';
-                    barbers.forEach(b => list += `*${b.id}* - ${b.nome}\n`);
+                    state.barberSelectionMap = {}; // Inicializa o mapeamento
+                    barbers.forEach((b, i) => {
+                        const localIndex = i + 1;
+                        list += `*${localIndex}* - ${b.nome}\n`;
+                        state.barberSelectionMap[localIndex] = b.id; // Guarda o mapeamento
+                    });
                     list += '\n*0* - 🔙 Voltar';
                     advanceState(from, 'barber');
                     await reply(list);
@@ -459,8 +483,15 @@ async function connectToWhatsApp() {
                     return;
                 }
                 if (text === '4') {
+                    await reloadBarbers();
                     let list = 'Qual barbeiro você prefere?\n\n';
-                    barbers.forEach(b => list += `*${b.id}* - ${b.nome}\n`);
+                    // # CORREÇÃO: Lógica para exibir barbeiros com índice local
+                    state.barberSelectionMap = {}; 
+                    barbers.forEach((b, i) => {
+                        const localIndex = i + 1;
+                        list += `*${localIndex}* - ${b.nome}\n`;
+                        state.barberSelectionMap[localIndex] = b.id;
+                    });
                     list += '\n*0* - 🔙 Voltar ao menu';
                     advanceState(from, 'barber');
                     await reply(list);
@@ -514,8 +545,15 @@ async function connectToWhatsApp() {
                 }
                 if (text === '3') {
                     // Agendar novo (a partir do reminder_options)
+                    await reloadBarbers();
                     let list = 'Qual barbeiro você prefere?\n\n';
-                    barbers.forEach(b => list += `*${b.id}* - ${b.nome}\n`);
+                    // # CORREÇÃO: Lógica para exibir barbeiros com índice local
+                    state.barberSelectionMap = {}; 
+                    barbers.forEach((b, i) => {
+                        const localIndex = i + 1;
+                        list += `*${localIndex}* - ${b.nome}\n`;
+                        state.barberSelectionMap[localIndex] = b.id;
+                    });
                     list += '\n*0* - 🔙 Voltar';
                     advanceState(from, 'barber');
                     await reply(list);
@@ -536,7 +574,11 @@ async function connectToWhatsApp() {
             // ===== FLUXO DE AGENDAMENTO (novo ou remarcação) =====
             if (state.step === 'barber' || state.step === 'reschedule_barber') {
                 const choice = parseInt(text);
-                const selectedBarber = barbers.find(b => b.id === choice);
+                
+                // # CORREÇÃO: Usar o mapeamento para obter o ID real do barbeiro
+                const realBarberId = state.barberSelectionMap[choice];
+                const selectedBarber = barbers.find(b => b.id === realBarberId);
+
                 if (selectedBarber) {
                     state.barber_id = selectedBarber.id;
                     state.barber_name = selectedBarber.nome;
