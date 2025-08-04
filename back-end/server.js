@@ -3,16 +3,16 @@ const sqlite3 = require('sqlite3').verbose();
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const path = require('path');
+const { v4: uuidv4 } = require('uuid');
 
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(bodyParser.json());
 
 const dbPath = path.join(__dirname, 'db', 'barbearia.db');
 
-// Conexão com banco
 const db = new sqlite3.Database(dbPath, (err) => {
   if (err) {
     console.error('❌ Erro ao conectar ao banco:', err);
@@ -21,169 +21,193 @@ const db = new sqlite3.Database(dbPath, (err) => {
   }
 });
 
-// ==============================
-// ROTAS - BARBEIROS
-// ==============================
+// Middleware de Autenticação - O Guardião
+const authenticate = async (req, res, next) => {
+    const apiKey = req.header('X-API-Key');
 
-// Criar novo barbeiro
-app.post('/barbers', (req, res) => {
-  const { nome, telefone } = req.body;
-  if (!nome) return res.status(400).json({ error: 'Nome é obrigatório.' });
+    if (!apiKey) {
+        return res.status(401).json({ error: 'Acesso negado. Chave de API não fornecida.' });
+    }
 
-  db.run('INSERT INTO barbers (nome, telefone) VALUES (?, ?)', [nome, telefone || null], function (err) {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ id: this.lastID, message: 'Barbeiro cadastrado com sucesso.' });
-  });
-});
-
-// Listar barbeiros
-app.get('/barbers', (req, res) => {
-  db.all('SELECT * FROM barbers', [], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
-  });
-});
-
-// Atualizar barbeiro
-app.put('/barbers/:id', (req, res) => {
-  const { nome, telefone } = req.body;
-  const id = req.params.id;
-  if (!nome) return res.status(400).json({ error: 'Nome é obrigatório.' });
-
-  db.run('UPDATE barbers SET nome = ?, telefone = ? WHERE id = ?', [nome, telefone || null, id], function (err) {
-    if (err) return res.status(500).json({ error: err.message });
-    if (this.changes === 0) return res.status(404).json({ error: 'Barbeiro não encontrado.' });
-    res.json({ message: 'Barbeiro atualizado com sucesso.' });
-  });
-});
-
-// Remover barbeiro
-app.delete('/barbers/:id', (req, res) => {
-  const id = req.params.id;
-  db.run('DELETE FROM barbers WHERE id = ?', [id], function (err) {
-    if (err) return res.status(500).json({ error: err.message });
-    if (this.changes === 0) return res.status(404).json({ error: 'Barbeiro não encontrado.' });
-    res.json({ message: 'Barbeiro removido com sucesso.' });
-  });
-});
-
-// ==============================
-// ROTAS - AGENDA
-// ==============================
-
-// Listar agendamentos
-app.get('/appointments', (req, res) => {
-  db.all('SELECT * FROM appointments', [], (err, rows) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json(rows);
-  });
-});
-
-// Criar agendamento com verificação de conflito
-app.post('/appointments', (req, res) => {
-  const { barber_id, cliente_nome, cliente_numero, data_hora } = req.body;
-
-  if (!barber_id || !cliente_nome || !cliente_numero || !data_hora) {
-    return res.status(400).json({ error: 'Todos os campos são obrigatórios.' });
-  }
-
-  // Verifica se já existe agendamento no mesmo horário com o mesmo barbeiro
-  db.get(
-    'SELECT * FROM appointments WHERE barber_id = ? AND data_hora = ?',
-    [barber_id, data_hora],
-    (err, row) => {
-      if (err) return res.status(500).json({ error: err.message });
-
-      if (row) {
-        // Já existe um agendamento
-        return res.status(409).json({ error: 'Horário já está ocupado para esse barbeiro.' });
-      }
-
-      // Se não existe, insere novo agendamento
-      db.run(
-        'INSERT INTO appointments (barber_id, cliente_nome, cliente_numero, data_hora) VALUES (?, ?, ?, ?)',
-        [barber_id, cliente_nome, cliente_numero, data_hora],
-        function (err) {
-          if (err) return res.status(500).json({ error: err.message });
-          res.json({ id: this.lastID, message: 'Agendamento criado com sucesso.' });
+    db.get('SELECT id FROM barbearias WHERE api_key = ?', [apiKey], (err, row) => {
+        if (err) {
+            console.error('❌ Erro no banco de dados durante a autenticação:', err);
+            return res.status(500).json({ error: 'Erro interno do servidor.' });
         }
-      );
+
+        if (!row) {
+            return res.status(403).json({ error: 'Acesso negado. Chave de API inválida.' });
+        }
+
+        req.barbearia_id = row.id; // Anexa o ID da barbearia à requisição
+        next();
+    });
+};
+
+// Rotas de gerenciamento de barbearias (acesso restrito)
+app.post('/barbearias', async (req, res) => {
+    const { nome_barbearia } = req.body;
+    if (!nome_barbearia) {
+        return res.status(400).json({ error: 'Nome da barbearia é obrigatório.' });
     }
-  );
+    const apiKey = uuidv4();
+
+    db.run('INSERT INTO barbearias (nome_barbearia, api_key) VALUES (?, ?)', [nome_barbearia, apiKey], function(err) {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        res.status(201).json({ id: this.lastID, nome_barbearia: nome_barbearia, api_key: apiKey, message: 'Barbearia criada com sucesso.' });
+    });
 });
 
-// Atualizar agendamento
-app.put('/appointments/:id', (req, res) => {
-  const id = req.params.id;
-  const {
-    barber_id,
-    cliente_nome,
-    cliente_numero,
-    data_hora,
-    status,
-    lembrete_enviado
-  } = req.body;
+// ==============================
+// ROTAS - APLICADAS AO MULTI-TENANT
+// ==============================
+// Aplica o middleware de autenticação a todas as rotas abaixo
+app.use(authenticate);
 
-  if (!data_hora) return res.status(400).json({ error: 'Data/hora obrigatória.' });
+// --- ROTAS DE BARBEIROS ---
 
-  db.run(
-    `UPDATE appointments SET
-      barber_id = ?,
-      cliente_nome = ?,
-      cliente_numero = ?,
-      data_hora = ?,
-      status = ?,
-      lembrete_enviado = ?
-     WHERE id = ?`,
-    [barber_id, cliente_nome, cliente_numero, data_hora, status || 'confirmado', lembrete_enviado ? 1 : 0, id],
-    function (err) {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({ message: 'Agendamento atualizado com sucesso.' });
+// Rota para adicionar um novo barbeiro
+app.post('/barbers', (req, res) => {
+    const { nome, telefone } = req.body;
+    const barbearia_id = req.barbearia_id;
+    if (!nome) {
+        return res.status(400).json({ error: 'Nome do barbeiro é obrigatório.' });
     }
-  );
+
+    // Simplificação: Deixar o banco de dados gerenciar o ID automaticamente.
+    // Removido a função findLowestAvailableBarberId
+    const sql = 'INSERT INTO barbers (nome, telefone, barbearia_id) VALUES (?, ?, ?)';
+    db.run(sql, [nome, telefone, barbearia_id], function(err) {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        // Usar this.lastID para obter o ID gerado pelo banco de dados
+        res.status(201).json({ id: this.lastID, nome, telefone, barbearia_id });
+    });
 });
 
-// Remover agendamento
-app.delete('/appointments/:id', (req, res) => {
-  const id = req.params.id;
-  db.run('DELETE FROM appointments WHERE id = ?', [id], function (err) {
+// Rota para listar barbeiros de uma barbearia específica
+app.get('/barbers', (req, res) => {
+  const barbearia_id = req.barbearia_id;
+  db.all('SELECT id, nome, telefone FROM barbers WHERE barbearia_id = ? ORDER BY id ASC', [barbearia_id], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
-    res.json({ message: 'Agendamento removido com sucesso.' });
+    res.json(rows);
   });
 });
 
-// ==============================
-// ROTAS - CONFIGURAÇÕES
-// ==============================
+// Rota para obter um barbeiro por ID
+app.get('/barbers/:id', (req, res) => {
+    const { id } = req.params;
+    const barbearia_id = req.barbearia_id;
+    db.get('SELECT id, nome, telefone FROM barbers WHERE id = ? AND barbearia_id = ?', [id, barbearia_id], (err, row) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (!row) return res.status(404).json({ error: 'Barbeiro não encontrado.' });
+        res.json(row);
+    });
+});
 
-// Buscar informações institucionais
-app.get('/info', (req, res) => {
-  db.all('SELECT * FROM config', [], (err, rows) => {
+// Rota para atualizar um barbeiro
+app.put('/barbers/:id', (req, res) => {
+    const { id } = req.params;
+    const { nome, telefone } = req.body;
+    const barbearia_id = req.barbearia_id;
+    if (!nome && !telefone) {
+        return res.status(400).json({ error: 'Pelo menos o nome ou o telefone deve ser fornecido.' });
+    }
+    db.run('UPDATE barbers SET nome = COALESCE(?, nome), telefone = COALESCE(?, telefone) WHERE id = ? AND barbearia_id = ?', [nome, telefone, id, barbearia_id], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        if (this.changes === 0) return res.status(404).json({ error: 'Barbeiro não encontrado ou não atualizado.' });
+        res.json({ message: 'Barbeiro atualizado com sucesso.', changes: this.changes });
+    });
+});
+
+// Rota para excluir um barbeiro
+app.delete('/barbers/:id', (req, res) => {
+    const { id } = req.params;
+    const barbearia_id = req.barbearia_id;
+    db.run('DELETE FROM barbers WHERE id = ? AND barbearia_id = ?', [id, barbearia_id], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        if (this.changes === 0) return res.status(404).json({ error: 'Barbeiro não encontrado.' });
+        res.json({ message: 'Barbeiro excluído com sucesso.', changes: this.changes });
+    });
+});
+
+// --- ROTAS DE CONFIGURAÇÃO ---
+app.post('/config', (req, res) => {
+    const { chave, valor } = req.body;
+    const barbearia_id = req.barbearia_id;
+    if (!chave || !valor) {
+        return res.status(400).json({ error: 'Chave e valor são obrigatórios.' });
+    }
+
+    db.run('INSERT OR REPLACE INTO config (chave, valor, barbearia_id) VALUES (?, ?, ?)', [chave, valor, barbearia_id], function (err) {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ message: `Configuração para '${chave}' salva com sucesso.` });
+    });
+});
+
+app.get('/config', (req, res) => {
+  const barbearia_id = req.barbearia_id;
+  db.all('SELECT chave, valor FROM config WHERE barbearia_id = ?', [barbearia_id], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
-
-    const config = {};
-    rows.forEach(r => config[r.chave] = r.valor);
+    const config = rows.reduce((acc, curr) => {
+        acc[curr.chave] = curr.valor;
+        return acc;
+    }, {});
     res.json(config);
   });
 });
 
-// Atualizar informações institucionais
-app.put('/info', (req, res) => {
-  const { endereco, sobre } = req.body;
-  if (!endereco || !sobre) return res.status(400).json({ error: 'Campos obrigatórios.' });
-
-  db.serialize(() => {
-    db.run('REPLACE INTO config (chave, valor) VALUES (?, ?)', ['endereco', endereco]);
-    db.run('REPLACE INTO config (chave, valor) VALUES (?, ?)', ['descricao', sobre], (err) => {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({ message: 'Informações salvas com sucesso.' });
+app.get('/config/:chave', (req, res) => {
+    const chave = req.params.chave;
+    const barbearia_id = req.barbearia_id;
+    db.get('SELECT valor FROM config WHERE chave = ? AND barbearia_id = ?', [chave, barbearia_id], (err, row) => {
+        if (err) {
+            return res.status(500).json({ error: err.message });
+        }
+        if (!row) {
+            return res.status(404).json({ error: 'Configuração não encontrada.' });
+        }
+        res.json(row);
     });
-  });
 });
 
-// ==============================
-// INICIAR SERVIDOR
-// ==============================
+// --- ROTAS DE AGENDAMENTOS ---
+// A rota POST para agendamentos foi movida para depois do middleware de autenticação
+app.post('/appointments', (req, res) => {
+    const { barber_id, cliente_nome, cliente_numero, data_hora, status, lembrete_enviado } = req.body;
+    const barbearia_id = req.barbearia_id;
+    if (!barber_id || !cliente_nome || !cliente_numero || !data_hora) {
+        return res.status(400).json({ error: 'Todos os campos são obrigatórios: barber_id, cliente_nome, cliente_numero, data_hora.' });
+    }
+
+    const sql = 'INSERT INTO appointments (barber_id, cliente_nome, cliente_numero, data_hora, status, lembrete_enviado, barbearia_id) VALUES (?, ?, ?, ?, ?, ?, ?)';
+    db.run(sql, [barber_id, cliente_nome, cliente_numero, data_hora, status, lembrete_enviado, barbearia_id], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        res.status(201).json({ id: this.lastID, barber_id, cliente_nome, cliente_numero, data_hora, barbearia_id });
+    });
+});
+
+app.get('/appointments', (req, res) => {
+    const barbearia_id = req.barbearia_id;
+    db.all('SELECT * FROM appointments WHERE barbearia_id = ?', [barbearia_id], (err, rows) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(rows);
+    });
+});
+
+app.delete('/appointments/:id', (req, res) => {
+    const { id } = req.params;
+    const barbearia_id = req.barbearia_id;
+    db.run('DELETE FROM appointments WHERE id = ? AND barbearia_id = ?', [id, barbearia_id], function(err) {
+        if (err) return res.status(500).json({ error: err.message });
+        if (this.changes === 0) return res.status(404).json({ error: 'Agendamento não encontrado.' });
+        res.json({ message: 'Agendamento excluído com sucesso.', changes: this.changes });
+    });
+});
+
 app.listen(port, () => {
-  console.log(`🌐 Servidor rodando em http://localhost:${port}`);
+  console.log(`🚀 Servidor rodando na porta ${port}`);
 });

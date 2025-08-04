@@ -16,6 +16,9 @@ document.addEventListener('DOMContentLoaded', async function () {
     const appointmentDateInput = document.getElementById('appointmentDate');
     const appointmentTimeSelect = document.getElementById('appointmentTime');
 
+   const API_KEY = '98ef615c-4d70-4f63-81bd-59c3c9070576';
+
+
     let selectedEvent = null;
     let barbers = [];
     let barberMap = {};
@@ -24,7 +27,10 @@ document.addEventListener('DOMContentLoaded', async function () {
 
     async function fetchBarbers() {
         try {
-            const res = await fetch('http://localhost:3000/barbers');
+            
+            const res = await fetch('http://localhost:3000/barbers', {
+                headers: { 'X-API-Key': API_KEY } // Adicionado
+            });
             return await res.json();
         } catch (err) {
             console.error('Erro ao buscar barbeiros:', err);
@@ -34,7 +40,9 @@ document.addEventListener('DOMContentLoaded', async function () {
 
     async function fetchAppointments() {
         try {
-            const res = await fetch('http://localhost:3000/appointments');
+            const res = await fetch('http://localhost:3000/appointments', {
+                headers: { 'X-API-Key': API_KEY } // Adicionado
+            });
             return await res.json();
         } catch (err) {
             console.error('Erro ao buscar agendamentos:', err);
@@ -72,7 +80,7 @@ document.addEventListener('DOMContentLoaded', async function () {
 
     async function loadBarbersList() {
         const container = document.getElementById('barbersListContainer');
-        if (!container) return; // evita erro se o container não existir
+        if (!container) return;
 
         container.innerHTML = '';
 
@@ -116,13 +124,13 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
 
        calendar = new FullCalendar.Calendar(calendarEl, {
-    initialView: 'timeGridWeek',
-    locale: 'pt-br',
-    headerToolbar: {
-        left: 'prev,next today',
-        center: 'title',
-        right: 'dayGridMonth,timeGridWeek,timeGridDay'
-    },
+            initialView: 'timeGridWeek',
+            locale: 'pt-br',
+            headerToolbar: {
+                left: 'prev,next today',
+                center: 'title',
+                right: 'dayGridMonth,timeGridWeek,timeGridDay'
+            },
             slotMinTime: '08:00:00',
             slotMaxTime: '21:00:00',
             events: await loadEvents(),
@@ -135,42 +143,30 @@ document.addEventListener('DOMContentLoaded', async function () {
             
            dateClick : function (info) {
                 newAppointmentModal.style.display = 'flex';
-                appointmentDateInput.value = info.dateStr; // só a data yyyy-mm-dd
+                appointmentDateInput.value = info.dateStr;
                 document.getElementById('clientName').value = '';
                 appointmentBarberSelect.value = '';
                 appointmentTimeSelect.innerHTML = `<option value="">Selecione um horário</option>`;
                 appointmentTimeSelect.disabled = true;
             }
         });
-
         calendar.render();
     }
 
-    // Função para buscar horários disponíveis para barbeiro e data
     function getAvailableTimes(barberId, dateStr) {
         const startHour = 8;
         const endHour = 21;
         let times = [];
-
         const date = new Date(dateStr + 'T00:00:00');
-
         for (let hour = startHour; hour < endHour; hour++) {
             const dt = new Date(date);
             dt.setHours(hour, 0, 0, 0);
-
-            // Verifica se já existe agendamento nesse horário para esse barbeiro
             const busy = appointments.some(appt => {
                 if (appt.barber_id !== barberId) return false;
-
                 const apptDate = new Date(appt.data_hora);
-                return apptDate.getFullYear() === dt.getFullYear() &&
-                       apptDate.getMonth() === dt.getMonth() &&
-                       apptDate.getDate() === dt.getDate() &&
-                       apptDate.getHours() === dt.getHours();
+                return apptDate.getFullYear() === dt.getFullYear() && apptDate.getMonth() === dt.getMonth() && apptDate.getDate() === dt.getDate() && apptDate.getHours() === dt.getHours();
             });
-
             if (!busy) {
-                // Verifica se o horário já passou (para não liberar horários passados no dia atual)
                 const now = new Date();
                 if (dt > now) {
                     const hh = hour.toString().padStart(2, '0');
@@ -181,173 +177,111 @@ document.addEventListener('DOMContentLoaded', async function () {
         return times;
     }
 
-    // Atualiza opções de horários disponíveis no select
     function updateTimeOptions() {
         const barberId = Number(appointmentBarberSelect.value);
         const dateStr = appointmentDateInput.value;
-
         appointmentTimeSelect.innerHTML = '';
-
         if (!barberId || !dateStr) {
             appointmentTimeSelect.disabled = true;
             appointmentTimeSelect.innerHTML = `<option value="">Selecione um horário</option>`;
             return;
         }
-
         const availableTimes = getAvailableTimes(barberId, dateStr);
-
-        if (availableTimes.length === 0) {
-            appointmentTimeSelect.innerHTML = `<option value="">Sem horários disponíveis</option>`;
-            appointmentTimeSelect.disabled = true;
-        } else {
+        if (availableTimes.length > 0) {
+            appointmentTimeSelect.disabled = false;
             availableTimes.forEach(time => {
                 const option = document.createElement('option');
                 option.value = time;
                 option.textContent = time;
                 appointmentTimeSelect.appendChild(option);
             });
-            appointmentTimeSelect.disabled = false;
+        } else {
+            appointmentTimeSelect.disabled = true;
+            const option = document.createElement('option');
+            option.textContent = 'Nenhum horário disponível';
+            appointmentTimeSelect.appendChild(option);
         }
     }
 
-    // Atualiza horários quando mudar barbeiro ou data
+    barberFilter.addEventListener('change', async () => {
+        calendar.setOption('events', await loadEvents());
+    });
+
     appointmentBarberSelect.addEventListener('change', updateTimeOptions);
     appointmentDateInput.addEventListener('change', updateTimeOptions);
 
-    function isTimeSlotAvailable(barberId, dateTimeISO) {
-        const agendamentoInicio = new Date(dateTimeISO);
-        const agendamentoFim = new Date(agendamentoInicio.getTime() + 60 * 60 * 1000);
-
-        return !appointments.some(appt => {
-            if (appt.barber_id != barberId) return false;
-
-            const inicio = new Date(appt.data_hora);
-            const fim = new Date(inicio.getTime() + 60 * 60 * 1000);
-
-            return agendamentoInicio < fim && agendamentoFim > inicio;
-        });
-    }
-
     cancelBtn.addEventListener('click', async () => {
-        if (selectedEvent) {
-            const confirmCancel = confirm('Deseja realmente cancelar este agendamento?');
-            if (confirmCancel) {
-                try {
-                    await fetch(`http://localhost:3000/appointments/${selectedEvent.id}`, { method: 'DELETE' });
-                    alert('✅ Agendamento cancelado com sucesso!');
-                    selectedEvent.remove();
-                    modal.style.display = 'none';
-                    await initCalendar();
-                } catch (err) {
-                    console.error('Erro ao cancelar agendamento:', err);
-                    alert('❌ Erro ao cancelar agendamento.');
-                }
+        if (!selectedEvent) return;
+
+        const confirmCancel = confirm(`Tem certeza que deseja cancelar o agendamento de ${selectedEvent.extendedProps.cliente} em ${selectedEvent.start.toLocaleString('pt-BR')}?`);
+        if (!confirmCancel) return;
+
+        try {
+            const res = await fetch(`http://localhost:3000/appointments/${selectedEvent.id}`, {
+                method: 'DELETE',
+                headers: { 'X-API-Key': API_KEY } // Adicionado
+            });
+
+            if (res.ok) {
+                alert('Agendamento cancelado com sucesso!');
+                modal.style.display = 'none';
+                calendar.setOption('events', await loadEvents());
+            } else {
+                const error = await res.json();
+                alert('Erro ao cancelar agendamento: ' + error.error);
             }
+        } catch (err) {
+            console.error('Erro ao cancelar agendamento:', err);
+            alert('Erro ao conectar com o servidor.');
         }
     });
-
-    closeModal.addEventListener('click', () => (modal.style.display = 'none'));
-    window.addEventListener('click', (e) => {
-        if (e.target === modal) modal.style.display = 'none';
-    });
-
-    closeNewModal.addEventListener('click', () => {
-        newAppointmentModal.style.display = 'none';
-    });
-    window.addEventListener('click', (e) => {
-        if (e.target === newAppointmentModal) newAppointmentModal.style.display = 'none';
-    });
-
-    appointmentForm.addEventListener('submit', async (e) => {
+    
+    appointmentForm.addEventListener('submit', async function (e) {
         e.preventDefault();
+    
+        const newAppointment = {
+            barber_id: parseInt(appointmentBarberSelect.value),
+            cliente_nome: document.getElementById('clientName').value,
+            cliente_numero: document.getElementById('clientPhone').value,
+            data_hora: `${appointmentDateInput.value} ${appointmentTimeSelect.value}:00`
+        };
 
-        const clientName = document.getElementById('clientName').value.trim();
-        const clientNumber = document.getElementById('clientNumber').value.trim(); // corrigi aqui
-        const dateValue = appointmentDateInput.value;
-        const timeValue = appointmentTimeSelect.value;
-        const selectedBarber = appointmentBarberSelect.value;
-
-        if (!clientName || !clientNumber || !dateValue || !timeValue || !selectedBarber) {
-            alert('Por favor, preencha todos os campos, incluindo o número do cliente, barbeiro e horário.');
-            return;
-        }
-
-        // Monta o datetime ISO para envio
-        const dateTimeISO = new Date(`${dateValue}T${timeValue}:00`).toISOString();
-
-        if (!isTimeSlotAvailable(Number(selectedBarber), dateTimeISO)) {
-            alert('❌ Horário indisponível para esse barbeiro. Escolha outro horário.');
+        if (isNaN(newAppointment.barber_id) || !newAppointment.cliente_nome || !newAppointment.data_hora) {
+            alert('Por favor, preencha todos os campos.');
             return;
         }
 
         try {
             const res = await fetch('http://localhost:3000/appointments', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    cliente_nome: clientName,
-                    cliente_numero: clientNumber,
-                    data_hora: dateTimeISO,
-                    barber_id: Number(selectedBarber)
-                })
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Key': API_KEY // Adicionado
+                },
+                body: JSON.stringify(newAppointment)
             });
 
-            if (!res.ok) {
-                const errMsg = await res.text();
-                throw new Error('Erro ao criar agendamento: ' + errMsg);
+            if (res.ok) {
+                alert('Agendamento criado com sucesso!');
+                newAppointmentModal.style.display = 'none';
+                calendar.setOption('events', await loadEvents());
+            } else {
+                const error = await res.json();
+                alert('Erro ao criar agendamento: ' + error.error);
             }
-
-            alert('✅ Agendamento criado com sucesso!');
-            newAppointmentModal.style.display = 'none';
-            await initCalendar();
         } catch (err) {
-            console.error(err);
-            alert('❌ Falha ao criar agendamento.\n' + err.message);
+            console.error('Erro ao criar agendamento:', err);
+            alert('Erro ao conectar com o servidor.');
         }
     });
 
-    // Filtro do barbeiro só atualiza eventos sem recriar calendário todo
-    barberFilter.addEventListener('change', async () => {
-        appointments = await fetchAppointments();
-        const selectedBarber = barberFilter.value ? Number(barberFilter.value) : null;
-
-        const filteredEvents = appointments
-            .filter(a => !selectedBarber || a.barber_id === selectedBarber)
-            .map(a => ({
-                id: a.id,
-                title: `Cliente: ${a.cliente_nome} (Barbeiro ${barberMap[a.barber_id] || a.barber_id})`,
-                start: a.data_hora,
-                backgroundColor: getColorByBarber(a.barber_id),
-                borderColor: '#333',
-                extendedProps: {
-                    cliente: a.cliente_nome,
-                    barbeiro: barberMap[a.barber_id] || a.barber_id,
-                    data: a.data_hora
-                }
-            }));
-
-        calendar.removeAllEvents();
-        calendar.addEventSource(filteredEvents);
-    });
-
-    async function removeBarber(id, nome) {
-        if (!confirm(`Deseja remover o barbeiro "${nome}"?`)) return;
-
-        try {
-            const res = await fetch(`http://localhost:3000/barbers/${id}`, { method: 'DELETE' });
-            if (!res.ok) {
-                const err = await res.json();
-                throw new Error(err.error || 'Erro ao remover barbeiro');
-            }
-            alert('Barbeiro removido com sucesso!');
-            // Atualizar lista de barbeiros carregados
-            await loadBarbers();
-            await initCalendar(); // Recarrega calendário para refletir a mudança
-        } catch (err) {
-            alert('Erro: ' + err.message);
-        }
-    }
+    closeModal.onclick = () => modal.style.display = 'none';
+    closeNewModal.onclick = () => newAppointmentModal.style.display = 'none';
+    window.onclick = function (event) {
+        if (event.target == modal) modal.style.display = 'none';
+        if (event.target == newAppointmentModal) newAppointmentModal.style.display = 'none';
+    };
 
     await loadBarbers();
-    await initCalendar();
+    initCalendar();
 });

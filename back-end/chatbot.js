@@ -1,22 +1,20 @@
 /*
- * chatbot.js - Versão Profissional Refatorada
+ * chatbot.js - Versão Consolidada e Corrigida
  * Supervisor: Gemini AI
- * Data da Revisão: 31/07/2025
+ * Data da Revisão: 02/08/2025
  *
  * ######################################################################################
- * ##                                                                                ##
- * ##  Este arquivo foi completamente reescrito para usar @whiskeysockets/baileys.   ##
- * ##  Esta mudança elimina a dependência do Puppeteer/Chrome, resolvendo problemas  ##
- * ##  de compatibilidade (Windows 11, VPS Linux) e melhorando drasticamente a       ##
- * ##  performance e o consumo de memória. A lógica de negócio original foi mantida. ##
- * ##                                                                                ##
+ * ##                                                                                  ##
+ * ##  Este arquivo combina a lógica de negócio funcional da versão antiga com o       ##
+ * ##  sistema de API Key e arquitetura multi-tenant da nova versão.                  ##
+ * ##                                                                                  ##
  * ######################################################################################
  */
 
 // --- Módulos Principais ---
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
-const pino = require('pino'); // Logger recomendado pelo Baileys
+const pino = require('pino');
 const QRCode = require('qrcode');
 const express = require('express');
 const cors = require('cors');
@@ -24,49 +22,49 @@ const path = require('path');
 const cron = require('node-cron');
 const axios = require('axios');
 const moment = require('moment');
-const sqlite3 = require('sqlite3').verbose();
-const fs = require('fs/promises'); // Adicionado para manipulação de arquivos de sessão
+const fs = require('fs/promises');
 
 // --- Configuração Inicial ---
 require('moment/locale/pt-br');
 moment.locale('pt-br');
 
-const app = express();
-const port = 3005;
+// Variáveis de Configuração Multi-tenant
+const API_KEY = process.env.API_KEY || '98ef615c-4d70-4f63-81bd-59c3c9070576';
+const PORT = process.env.PORT || 3005;
+const AUTH_INFO_PATH = process.env.AUTH_INFO_PATH || 'baileys_auth_info_multi';
 
-// --- Otimização: Conexão Única com o Banco de Dados ---
-const dbPath = path.resolve(__dirname, 'db', 'barbearia.db');
-const db = new sqlite3.Database(dbPath, (err) => {
-    if (err) {
-        console.error('❌ [DATABASE] Erro fatal ao conectar ao banco de dados SQLite:', err.message);
-        process.exit(1); // Encerra a aplicação se não puder conectar ao DB
-    } else {
-        console.log('✅ [DATABASE] Conectado com sucesso ao banco de dados SQLite.');
+// Cliente Axios com a API Key de autenticação
+const apiClient = axios.create({
+    baseURL: 'http://localhost:3000', // URL da sua API
+    headers: {
+        'X-API-Key': API_KEY,
+        'Content-Type': 'application/json'
     }
 });
 
-// --- Middlewares do Express ---
-app.use(cors()); // Permite requisições de outras origens (seu front-end)
-app.use(express.json()); // Permite ao Express entender JSON no corpo das requisições
+const app = express();
+app.use(cors());
+app.use(express.json());
 
 // --- Variáveis de Estado do Bot ---
 let sock;
 let qrCodeImage = null;
-let connectionState = 'starting'; // Estados: starting, qr, connected, disconnected
-const userState = {}; // Armazena o estado da conversa de cada usuário
-
-// Path para as credenciais do Baileys
-const authInfoPath = 'baileys_auth_info';
+let connectionState = 'starting';
+const userState = {};
+let barbers = [];
 
 // ##################################################################
 // ##               FUNÇÕES AUXILIARES E DE NEGÓCIO                ##
 // ##################################################################
 
-// Reseta o estado de um usuário para o menu inicial
+/**
+ * Reseta o estado do usuário para o menu inicial.
+ * @param {string} from - O JID do usuário.
+ */
 function resetState(from) {
     userState[from] = {
         step: 'menu',
-        history: [], // ADICIONADO: Histórico de estados para navegação "voltar"
+        history: [],
         barber_id: null,
         barber_name: null,
         date: null,
@@ -76,84 +74,135 @@ function resetState(from) {
     };
 }
 
-// Função para avançar no estado, salvando o estado atual no histórico
+/**
+ * Avança o estado do usuário para o próximo passo.
+ * @param {string} from - O JID do usuário.
+ * @param {string} nextStep - O próximo passo do fluxo.
+ */
 function advanceState(from, nextStep) {
     const state = userState[from];
-    // Evita adicionar o mesmo estado repetidamente e 'menu' no histórico
     if (state.step !== nextStep && state.step !== 'menu') {
         state.history.push(state.step);
     }
     state.step = nextStep;
-    console.log(`[STATE] ${from} - Avançando para: ${nextStep}. Histórico: ${state.history}`); // Para debug
+    console.log(`[STATE] ${from} - Avançando para: ${nextStep}. Histórico: ${state.history}`);
 }
 
-// Função para retroceder um estado
+/**
+ * Retorna o estado do usuário para o passo anterior.
+ * @param {string} from - O JID do usuário.
+ */
 function goBackState(from) {
     const state = userState[from];
     if (state.history.length > 0) {
-        state.step = state.history.pop(); // Remove e retorna o último estado
+        state.step = state.history.pop();
     } else {
-        state.step = 'menu'; // Se não há histórico, volta para o menu principal
+        state.step = 'menu';
     }
-    console.log(`[STATE] ${from} - Voltando para: ${state.step}. Histórico: ${state.history}`); // Para debug
+    console.log(`[STATE] ${from} - Voltando para: ${state.step}. Histórico: ${state.history}`);
 }
 
-// Busca barbeiros da API (server.js)
-async function getBarbers() {
-    const res = await axios.get('http://localhost:3000/barbers');
-    return res.data;
+/**
+ * Recarrega a lista de barbeiros da API.
+ */
+async function reloadBarbers() {
+    try {
+        const res = await apiClient.get('/barbers');
+        barbers = res.data;
+        console.log(`✅ Lista de barbeiros recarregada. Total: ${barbers.length}`);
+    } catch (err) {
+        console.error('❌ Erro ao recarregar a lista de barbeiros da API:', err);
+    }
 }
 
-// --- Busca agendamentos de um cliente específico ---
+/**
+ * Busca os agendamentos de um cliente específico.
+ * @param {string} phone - O número de telefone do cliente.
+ * @returns {Array} - Uma lista de agendamentos.
+ */
 async function getClientAppointments(phone) {
-    const res = await axios.get('http://localhost:3000/appointments');
-    // Garante que a comparação de números seja robusta
-    return res.data.filter(a => a.cliente_numero && a.cliente_numero.includes(phone));
+    try {
+        const res = await apiClient.get(`/appointments`);
+        return res.data.filter(a => a.cliente_numero && a.cliente_numero.includes(phone));
+    } catch (err) {
+        console.error('❌ Erro ao buscar agendamentos do cliente na API:', err);
+        return [];
+    }
 }
 
-// Busca horários disponíveis para um barbeiro em uma data
+/**
+ * Busca os horários disponíveis para um barbeiro em uma data específica.
+ *
+ * @param {number} barber_id - O ID do barbeiro.
+ * @param {string} date - A data no formato 'YYYY-MM-DD'.
+ * @returns {Array<string>} - Uma lista de horários disponíveis no formato 'HH:mm'.
+ */
 async function getAvailableTimes(barber_id, date) {
-    const res = await axios.get('http://localhost:3000/appointments');
-    const booked = res.data
-        .filter(a => a.barber_id == barber_id && a.data_hora.startsWith(date))
-        .map(a => moment(a.data_hora).format('HH:mm'));
+    try {
+        const res = await apiClient.get(`/appointments`);
+        const booked = res.data
+            .filter(a => a.barber_id === barber_id && moment(a.data_hora).format('YYYY-MM-DD') === date)
+            .map(a => moment(a.data_hora).format('HH:mm'));
+        const allTimes = ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00'];
+        const availableTimes = allTimes.filter(t => {
+            // Verifica se o horário já foi reservado
+            if (booked.includes(t)) {
+                return false;
+            }
 
-    const allTimes = ['09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00'];
-    return allTimes.filter(t => !booked.includes(t));
+            // CORRIGIDO: Verifica se o horário já passou
+            const appointmentDateTime = moment(`${date} ${t}`, 'YYYY-MM-DD HH:mm');
+            return appointmentDateTime.isAfter(moment());
+        });
+        return availableTimes;
+    } catch (err) {
+        console.error('❌ Erro ao buscar horários disponíveis na API:', err);
+        return [];
+    }
 }
 
-// Busca uma configuração específica do banco de dados
+/**
+ * Busca uma configuração específica da API.
+ * @param {string} chave - A chave da configuração.
+ * @returns {string|null} - O valor da configuração ou null se não encontrada.
+ */
 async function getConfig(chave) {
-    return new Promise((resolve, reject) => {
-        db.get("SELECT valor FROM config WHERE chave = ?", [chave], (err, row) => {
-            if (err) return reject(err);
-            resolve(row ? row.valor : null);
-        });
-    });
+    try {
+        const res = await apiClient.get(`/config/${chave}`);
+        return res.data.valor;
+    } catch (err) {
+        if (err.response && err.response.status === 404) {
+            return null;
+        }
+        console.error(`❌ Erro ao buscar configuração '${chave}':`, err);
+        return null;
+    }
 }
 
 // ##################################################################
 // ##               NOVA FUNÇÃO: getMenuMessageForState            ##
 // ##################################################################
-// Esta função é essencial para reconstruir a mensagem do menu do estado anterior.
-// Você precisará mantê-la atualizada conforme adiciona novos passos.
+
+/**
+ * Retorna a mensagem de menu apropriada para o estado atual do usuário.
+ * @param {string} step - O passo atual do fluxo.
+ * @param {object} state - O objeto de estado do usuário.
+ * @returns {Promise<string>} - A mensagem de texto a ser enviada.
+ */
 async function getMenuMessageForState(step, state) {
     switch (step) {
         case 'menu':
+            // Recarrega a lista de barbeiros para garantir que esteja atualizada
+            await reloadBarbers();
             return '👋 Olá! Sou o assistente virtual da Barbearia. Escolha uma opção:\n\n*1* - 📅 Agendar um horário\n*2* - 💈 Ver serviços e valores\n*3* - 📌 Ver nossa localização\n*4* - 🔄 Remarcar ou Cancelar um horário';
         case 'reminder_options':
-            // Esta parte assume que 'nextAppointment' e 'barber' estariam no estado
-            // Para simplicidade, podemos redirecionar ou dar um menu mais genérico
             return 'O que deseja fazer?\n*1* - 🔄 Remarcar este horário\n*2* - ❌ Cancelar este horário\n*3* - 📅 Agendar um novo horário\n*0* - 🔙 Voltar';
         case 'manage_select_appointment':
-            // Re-gerar a lista de agendamentos é complexo aqui sem re-chamar getClientAppointments
-            // Uma mensagem mais genérica é ok para o "voltar" aqui
-            const appointments = await getClientAppointments(state.selectedAppointment ? state.selectedAppointment.cliente_numero : state.fromNumber); // Tenta usar o número do cliente
+            const appointments = await getClientAppointments(state.selectedAppointment ? state.selectedAppointment.cliente_numero : state.fromNumber);
             const futureAppointments = appointments.filter(a => moment(a.data_hora).isAfter(moment()));
-            state.appointments = futureAppointments; // Atualiza para o caso de ter mudado
+            state.appointments = futureAppointments;
             let list = 'Você tem os seguintes agendamentos:\n';
-            const barbers = await getBarbers();
-            state.appointments.forEach((a, i) => {
+            futureAppointments.forEach((a, i) => {
                 const barber = barbers.find(b => b.id === a.barber_id);
                 list += `\n*${i + 1}* - ${barber ? barber.nome : 'Barbeiro'} em ${moment(a.data_hora).format('ddd, DD/MM [às] HH:mm')}`;
             });
@@ -162,25 +211,24 @@ async function getMenuMessageForState(step, state) {
             return `O que deseja fazer com o agendamento de ${moment(state.selectedAppointment.data_hora).format('DD/MM [às] HH:mm')}?\n\n*1* - 🔄 Remarcar\n*2* - ❌ Cancelar\n\n*0* - 🔙 Voltar`;
         case 'barber':
         case 'reschedule_barber':
-            const allBarbers = await getBarbers();
+            await reloadBarbers(); // Garante que a lista está atualizada
             let listBarbers = 'Qual barbeiro você prefere?\n\n';
-            allBarbers.forEach(b => listBarbers += `*${b.id}* - ${b.nome}\n`);
+            barbers.forEach(b => listBarbers += `*${b.id}* - ${b.nome}\n`);
             listBarbers += '\n*0* - 🔙 Voltar ao menu';
             return listBarbers;
         case 'date':
         case 'reschedule_date':
-            const diasDisponiveis = Array.from({ length: 7 }, (_, i) => moment().add(i, 'days'));
+            // Filtra apenas dias futuros ou o dia atual
+            const diasDisponiveis = Array.from({ length: 7 }, (_, i) => moment().add(i, 'days')).filter(d => d.isSameOrAfter(moment(), 'day'));
             let listaDias = '📅 Ótimo! Agora escolha o dia:\n\n';
             diasDisponiveis.forEach((d, i) => {
                 listaDias += `*${i + 1}* - ${d.format('dddd, DD/MM')}\n`;
             });
             listaDias += '\n*0* - 🔙 Voltar';
-            // Re-define availableDates para que o usuário possa selecionar novamente
             state.availableDates = diasDisponiveis.map(d => d.format('YYYY-MM-DD'));
             return listaDias;
         case 'time':
         case 'reschedule_time':
-            // Requer recarregar os horários disponíveis para ser exato no "voltar"
             if (!state.barber_id || !state.date) {
                 return 'Houve um problema para encontrar os horários. Por favor, digite *0* para voltar ao passo anterior.';
             }
@@ -191,7 +239,7 @@ async function getMenuMessageForState(step, state) {
             let listTimes = `⏰ Perfeito! Horários disponíveis para ${moment(state.date).format('DD/MM')}:\n\n`;
             times.forEach((t, i) => listTimes += `*${i + 1}* - ${t}\n`);
             listTimes += '\n*0* - 🔙 Voltar';
-            state.availableTimes = times; // Atualiza a lista de horários no estado
+            state.availableTimes = times;
             return listTimes;
         case 'confirm':
         case 'reschedule_confirm':
@@ -207,25 +255,22 @@ async function getMenuMessageForState(step, state) {
 // ##################################################################
 
 async function connectToWhatsApp() {
-    // Certifique-se de que 'state' e 'saveCreds' são obtidos do caminho correto
-    const { state, saveCreds } = await useMultiFileAuthState(authInfoPath);
+    const { state, saveCreds } = await useMultiFileAuthState(AUTH_INFO_PATH);
     const { version, isLatest } = await fetchLatestBaileysVersion();
     console.log(`🔌 [BAILEYS] Usando versão: ${version.join('.')}, é a mais recente: ${isLatest}`);
-
     sock = makeWASocket({
         version,
-        logger: pino({ level: 'silent' }), // Use 'debug' para logs detalhados
+        logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
         auth: state,
         browser: ['Bot-Barbearia', 'Chrome', '1.0.0']
     });
 
-    // --- Tratamento de Eventos da Conexão ---
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
-            console.log('📌 [QRCODE] Novo QR Code gerado. Escaneie pela página web.');
+            console.log(`📌 [QRCODE] Novo QR Code gerado para ${AUTH_INFO_PATH}.`);
             qrCodeImage = await QRCode.toDataURL(qr);
             connectionState = 'qr';
         }
@@ -236,60 +281,49 @@ async function connectToWhatsApp() {
             qrCodeImage = null;
             connectionState = 'disconnected';
 
-            // --- Adição para lidar com credenciais inválidas e forçar novo QR Code ---
             if (lastDisconnect.error instanceof Boom) {
                 const statusCode = lastDisconnect.error.output.statusCode;
-                // Se o motivo do desconecte for sessão expirada ou logoff (manualmente desconectado)
                 if (statusCode === DisconnectReason.loggedOut || statusCode === DisconnectReason.badSession) {
-                    console.log('🗑️ [AUTH] Sessão inválida ou desconectada. Removendo credenciais para forçar novo QR Code.');
+                    console.log(`🗑️ [AUTH] Sessão inválida para ${AUTH_INFO_PATH}. Removendo credenciais para forçar novo QR Code.`);
                     try {
-                        await fs.rm(authInfoPath, { recursive: true, force: true });
+                        await fs.rm(AUTH_INFO_PATH, { recursive: true, force: true });
                         console.log('✅ [AUTH] Credenciais antigas removidas com sucesso.');
                     } catch (err) {
                         console.error('❌ [AUTH] Erro ao remover credenciais antigas:', err);
                     }
                 }
             }
-            // --- Fim da adição ---
-
             if (shouldReconnect) {
-                setTimeout(connectToWhatsApp, 5000); // Tenta reconectar após 5 segundos
+                setTimeout(connectToWhatsApp, 5000);
             } else {
-                console.log('🚫 [CONNECTION] Não reconectando automaticamente. Motivo: loggedOut ou badSession. Você precisa reiniciar o bot para obter um novo QR Code.');
-                // Se não deve reconectar automaticamente, pode ser útil sair ou aguardar
-                // uma ação manual (ex: reiniciar o processo do Node).
-                // process.exit(0); // Opcional: para encerrar o bot e forçar reinício manual
+                console.log('🚫 [CONNECTION] Não reconectando automaticamente.');
             }
         } else if (connection === 'open') {
             console.log('✅ [CONNECTION] Cliente WhatsApp conectado com sucesso!');
             qrCodeImage = null;
             connectionState = 'connected';
+            await reloadBarbers(); // Recarrega a lista de barbeiros ao conectar
         }
     });
-
-    // Salva a sessão sempre que as credenciais são atualizadas
     sock.ev.on('creds.update', saveCreds);
 
-    // --- Tratamento de Mensagens Recebidas ---
     sock.ev.on('messages.upsert', async (m) => {
         const msg = m.messages[0];
 
-        // --- Filtros para ignorar mensagens irrelevantes ---
         if (!msg.message || msg.key.fromMe || msg.key.remoteJid.endsWith('@g.us')) {
             return;
         }
 
         const from = msg.key.remoteJid;
         const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || '').trim().toLowerCase();
-        const fromNumber = from.split('@')[0]; // Número puro do cliente
+        const fromNumber = from.split('@')[0];
 
-        // Se o usuário não tem um estado, inicializa
         if (!userState[from]) {
             resetState(from);
         }
 
         const state = userState[from];
-        state.fromNumber = fromNumber; // Armazena o número no estado para fácil acesso na função de menu
+        state.fromNumber = fromNumber;
         const reply = async (message) => await sock.sendMessage(from, { text: message });
 
         // ##################################################################
@@ -297,40 +331,34 @@ async function connectToWhatsApp() {
         // ##################################################################
 
         try {
-            // Tratamento global para "0" ou "voltar"
             if (text === '0' || text === 'voltar') {
-                if (state.step === 'menu' && state.history.length === 0) { // Já está no menu inicial sem histórico
+                if (state.step === 'menu' && state.history.length === 0) {
                     await reply('Você já está no menu principal. Escolha uma opção ou diga "oi" para ver o menu novamente.');
                 } else {
                     goBackState(from);
-                    // Reconstroi a mensagem do estado anterior para guiar o usuário
                     await reply(`Ok, voltando. ${await getMenuMessageForState(state.step, state)}`);
                 }
-                return; // Importante para não processar a mensagem no fluxo normal
+                return;
             }
 
-            // ===== MENU PRINCIPAL E SAUDAÇÃO =====
             if (state.step === 'menu') {
                 if (['oi', 'olá', 'ola', 'menu', 'oi!', 'ola!'].includes(text)) {
+                    await reloadBarbers();
                     const appointments = await getClientAppointments(fromNumber);
                     const futureAppointments = appointments.filter(a => moment(a.data_hora).isAfter(moment()));
 
-                    // CASO 1: Nenhum agendamento futuro
                     if (futureAppointments.length === 0) {
                         await reply('👋 Olá! Sou o assistente virtual da Barbearia. Escolha uma opção:\n\n*1* - 📅 Agendar um horário\n*2* - 💈 Ver serviços e valores\n*3* - 📌 Ver nossa localização\n*4* - 🔄 Gerenciar agendamentos (se houver)');
                         return;
                     }
 
-                    // Ordena os agendamentos por data
                     futureAppointments.sort((a, b) => new Date(a.data_hora) - new Date(b.data_hora));
                     state.appointments = futureAppointments;
 
-                    // CASO 2: Exatamente UM agendamento futuro (comportamento antigo mantido)
                     if (futureAppointments.length === 1) {
                         const nextAppointment = futureAppointments[0];
-                        const barber = (await getBarbers()).find(b => b.id === nextAppointment.barber_id);
+                        const barber = barbers.find(b => b.id === nextAppointment.barber_id);
                         advanceState(from, 'reminder_options');
-                        
                         await reply(
                             `👋 Olá! Você já tem um agendamento no dia ${moment(nextAppointment.data_hora).format('DD/MM')} às ${moment(nextAppointment.data_hora).format('HH:mm')} com o barbeiro ${barber ? barber.nome : 'desconhecido'}.\n\n` +
                             `O que deseja fazer?\n*1* - 🔄 Remarcar este horário\n*2* - ❌ Cancelar este horário\n*3* - 📅 Agendar um novo horário\n*0* - 🔙 Voltar`
@@ -338,7 +366,6 @@ async function connectToWhatsApp() {
                         return;
                     }
 
-                    // CASO 3: MAIS DE UM agendamento futuro (novo fluxo)
                     if (futureAppointments.length > 1) {
                         advanceState(from, 'multi_appointment_menu');
                         await reply(
@@ -353,26 +380,24 @@ async function connectToWhatsApp() {
                         return;
                     }
                 }
-
                 if (text === '1') {
-                    const barbers = await getBarbers();
                     let list = 'Qual barbeiro você prefere?\n\n';
                     barbers.forEach(b => list += `*${b.id}* - ${b.nome}\n`);
                     list += '\n*0* - 🔙 Voltar';
-                    advanceState(from, 'barber'); // <-- Usar advanceState
+                    advanceState(from, 'barber');
                     await reply(list);
                     return;
                 }
                 if (text === '2') {
                     const descricao = await getConfig('descricao') || 'Informação sobre valores não disponível no momento.';
                     await reply(descricao);
-                    resetState(from); // Volta para o menu após exibir a informação
+                    resetState(from);
                     return;
                 }
                 if (text === '3') {
                     const endereco = await getConfig('endereco') || 'Endereço não disponível no momento.';
                     await reply(endereco);
-                    resetState(from); // Volta para o menu após exibir a informação
+                    resetState(from);
                     return;
                 }
                 if (text === '4') {
@@ -384,413 +409,236 @@ async function connectToWhatsApp() {
                         resetState(from);
                         return;
                     }
-
                     state.appointments = futureAppointments;
                     let list = 'Você tem os seguintes agendamentos:\n';
-                    const barbers = await getBarbers();
                     state.appointments.forEach((a, i) => {
                         const barber = barbers.find(b => b.id === a.barber_id);
                         list += `\n*${i + 1}* - ${barber ? barber.nome : 'Barbeiro'} em ${moment(a.data_hora).format('ddd, DD/MM [às] HH:mm')}`;
                     });
-
-                    advanceState(from, 'manage_select_appointment'); // <-- Usar advanceState
+                    advanceState(from, 'manage_select_appointment');
                     await reply(list + '\n\nDigite o número do agendamento que deseja gerenciar ou *0* para voltar.');
                     return;
                 }
             }
-            // ===== NOVO FLUXO: MENU PARA MÚLTIPLOS AGENDAMENTOS =====
             if (state.step === 'multi_appointment_menu') {
-                const barbers = await getBarbers();
-
-                // 1 - Ver meus horários
                 if (text === '1') {
                     let list = '🗓️ Estes são seus próximos agendamentos:\n';
                     state.appointments.forEach((a) => {
                         const barber = barbers.find(b => b.id === a.barber_id);
                         list += `\n- Com *${barber ? barber.nome : 'Barbeiro'}* em ${moment(a.data_hora).format('dddd, DD/MM/YYYY [às] HH:mm')}`;
                     });
-                    
-                    // Envia a lista e depois o menu de opções novamente para o usuário não ficar preso
                     await reply(list);
-                    await reply(`O que você gostaria de fazer agora?\n` +
-                                `*1* - 🗒️ Ver meus horários\n` +
-                                `*2* - 🔄 Remarcar um horário\n` +
-                                `*3* - ❌ Cancelar um horário\n` +
-                                `*4* - 📅 Agendar um novo horário\n` +
-                                `*0* - 🔙 Sair`);
+                    await reply(
+                        `O que você gostaria de fazer agora?\n` +
+                        `*1* - 🗒️ Ver meus horários\n` +
+                        `*2* - 🔄 Remarcar um horário\n` +
+                        `*3* - ❌ Cancelar um horário\n` +
+                        `*4* - 📅 Agendar um novo horário\n` +
+                        `*0* - 🔙 Sair`
+                    );
                     return;
                 }
-                
-                // 2 - Remarcar ou 3 - Cancelar (ambos levam para o mesmo fluxo de seleção)
-                if (text === '2' || text === '3') {
-                    let list = 'Ok. Qual destes agendamentos você deseja gerenciar?\n';
+                if (text === '2') {
+                    advanceState(from, 'manage_select_appointment');
+                    let list = 'Você tem os seguintes agendamentos:\n';
                     state.appointments.forEach((a, i) => {
                         const barber = barbers.find(b => b.id === a.barber_id);
-                        list += `\n*${i + 1}* - Com *${barber ? barber.nome : 'Barbeiro'}* em ${moment(a.data_hora).format('DD/MM [às] HH:mm')}`;
+                        list += `\n*${i + 1}* - ${barber ? barber.nome : 'Barbeiro'} em ${moment(a.data_hora).format('ddd, DD/MM [às] HH:mm')}`;
                     });
-                    
-                    // REUTILIZANDO o fluxo de gerenciamento já existente
-                    advanceState(from, 'manage_select_appointment'); 
-                    await reply(list + '\n\nDigite o número do agendamento ou *0* para voltar.');
+                    await reply(list + '\n\nDigite o número do agendamento que deseja gerenciar ou *0* para voltar.');
                     return;
                 }
-
-                // 4 - Agendar um novo horário
+                if (text === '3') {
+                    advanceState(from, 'manage_select_appointment');
+                    let list = 'Você tem os seguintes agendamentos:\n';
+                    state.appointments.forEach((a, i) => {
+                        const barber = barbers.find(b => b.id === a.barber_id);
+                        list += `\n*${i + 1}* - ${barber ? barber.nome : 'Barbeiro'} em ${moment(a.data_hora).format('ddd, DD/MM [às] HH:mm')}`;
+                    });
+                    await reply(list + '\n\nDigite o número do agendamento que deseja gerenciar ou *0* para voltar.');
+                    return;
+                }
                 if (text === '4') {
-                    let list = 'Ok, vamos agendar um novo horário. Qual barbeiro você prefere?\n\n';
-                    barbers.forEach(b => list += `*${b.id}* - ${b.nome}\n`);
-                    list += '\n*0* - 🔙 Voltar';
-                    
-                    // REUTILIZANDO o fluxo de agendamento já existente
-                    advanceState(from, 'barber'); 
-                    await reply(list);
-                    return;
-                }
-                
-                // Opção de Sair tratada pelo "0" global. Se digitar algo inválido:
-                await reply('❌ Opção inválida. Por favor, escolha um número do menu acima.');
-                return;
-            }
-
-            // ===== FLUXO DE OPÇÕES DO LEMBRETE INICIAL =====
-            if (state.step === 'reminder_options') {
-                // "0" ou "voltar" já é tratado globalmente
-                if (text === '1') { // Remarcar
-                    state.selectedAppointment = state.appointments[0];
-                    advanceState(from, 'reschedule_barber'); // <-- Usar advanceState
-                    const barbers = await getBarbers();
-                    let list = 'Com qual barbeiro você gostaria de remarcar?\n\n';
-                    barbers.forEach(b => list += `*${b.id}* - ${b.nome}\n`);
-                    list += '\n*0* - 🔙 Cancelar';
-                    await reply(list);
-                    return;
-                }
-                if (text === '2') { // Cancelar
-                    const appt = state.appointments[0];
-                    await axios.delete(`http://localhost:3000/appointments/${appt.id}`);
-                    await reply(`✅ Agendamento do dia ${moment(appt.data_hora).format('DD/MM [às] HH:mm')} foi cancelado com sucesso.`);
-                    resetState(from); // Após a ação, volta ao menu principal
-                    return;
-                }
-                if (text === '3') { // Agendar outro
-                    advanceState(from, 'barber'); // <-- Usar advanceState
-                    const barbers = await getBarbers();
-                    let list = 'Ok. Qual barbeiro você prefere para o novo agendamento?\n\n';
+                    let list = 'Qual barbeiro você prefere?\n\n';
                     barbers.forEach(b => list += `*${b.id}* - ${b.nome}\n`);
                     list += '\n*0* - 🔙 Voltar ao menu';
+                    advanceState(from, 'barber');
                     await reply(list);
                     return;
                 }
-                await reply('❌ Opção inválida. Por favor, escolha uma das opções acima ou *0* para voltar.');
-                return;
+                if (text === '0' || text === 'sair') {
+                    resetState(from);
+                    await reply('👋 Certo! Envie "oi" ou "menu" a qualquer momento para começarmos de novo.');
+                    return;
+                }
             }
-
-            // ===== FLUXO DE GERENCIAMENTO (ESCOLHA DO AGENDAMENTO) =====
-            if (state.step === 'manage_select_appointment') {
-                // "0" ou "voltar" já é tratado globalmente
-                const index = parseInt(text) - 1;
-                if (isNaN(index) || !state.appointments[index]) {
-                    await reply('❌ Opção inválida. Escolha um número da lista ou *0* para voltar.');
-                    return;
-                }
-                state.selectedAppointment = state.appointments[index];
-                advanceState(from, 'manage_select_action'); // <-- Usar advanceState
-                await reply(`O que deseja fazer com o agendamento de ${moment(state.selectedAppointment.data_hora).format('DD/MM [às] HH:mm')}?\n\n*1* - 🔄 Remarcar\n*2* - ❌ Cancelar\n\n*0* - 🔙 Voltar`);
-                return;
-            }
-
-            // ===== FLUXO DE GERENCIAMENTO (ESCOLHA DA AÇÃO) =====
-            if (state.step === 'manage_select_action') {
-                // "0" ou "voltar" já é tratado globalmente
-                if (text === '1') { // Remarcar
-                    advanceState(from, 'reschedule_barber'); // <-- Usar advanceState
-                    const barbers = await getBarbers();
-                    let list = 'Com qual barbeiro você gostaria de remarcar?\n\n';
-                    barbers.forEach(b => list += `*${b.id}* - ${b.nome}\n`);
-                    list += '\n*0* - 🔙 Cancelar';
-                    await reply(list);
-                    return;
-                }
-                if (text === '2') { // Cancelar
-                    await axios.delete(`http://localhost:3000/appointments/${state.selectedAppointment.id}`);
-                    await reply(`✅ Agendamento do dia ${moment(state.selectedAppointment.data_hora).format('DD/MM [às] HH:mm')} foi cancelado com sucesso.`);
-                    resetState(from); // Após a ação, volta ao menu principal
-                    return;
-                }
-                await reply('❌ Opção inválida. Escolha 1 para remarcar ou 2 para cancelar, ou *0* para voltar.');
-                return;
-            }
-
-            // ===== FLUXO UNIFICADO DE ESCOLHA DE BARBEIRO (AGENDAR E REMARCAR) =====
-            const barberStep = state.step === 'barber' || state.step === 'reschedule_barber';
-            if (barberStep) {
-                // "0" ou "voltar" já é tratado globalmente
-
-                const barbers = await getBarbers();
-                const selected = barbers.find(b => b.id == text);
-                if (!selected) {
-                    await reply('❌ Barbeiro inválido. Por favor, escolha um número da lista ou *0* para voltar.');
-                    return;
-                }
-
-                state.barber_id = selected.id;
-                state.barber_name = selected.nome;
-
-                const diasDisponiveis = Array.from({ length: 7 }, (_, i) => moment().add(i, 'days'));
-                let listaDias = '📅 Ótimo! Agora escolha o dia:\n\n';
-                diasDisponiveis.forEach((d, i) => {
-                    listaDias += `*${i + 1}* - ${d.format('dddd, DD/MM')}\n`;
-                });
-                listaDias += '\n*0* - 🔙 Voltar';
-
-                advanceState(from, state.step === 'barber' ? 'date' : 'reschedule_date'); // <-- Usar advanceState
-                state.availableDates = diasDisponiveis.map(d => d.format('YYYY-MM-DD'));
-
-                await reply(listaDias);
-                return;
-            }
-
-            // ===== FLUXO UNIFICADO DE ESCOLHA DE DATA (AGENDAR E REMARCAR) =====
-            const dateStep = state.step === 'date' || state.step === 'reschedule_date';
-            if (dateStep) {
-                // "0" ou "voltar" já é tratado globalmente
-
-                const index = parseInt(text) - 1;
-                if (isNaN(index) || !state.availableDates[index]) {
-                    await reply('❌ Dia inválido. Por favor, escolha um número da lista ou *0* para voltar.');
-                    return;
-                }
-                state.date = state.availableDates[index];
-
-                const times = await getAvailableTimes(state.barber_id, state.date);
-                if (times.length === 0) {
-                    await reply('❌ Nenhum horário disponível para este dia com este barbeiro. Por favor, digite *0* para escolher outro dia ou *0* novamente para escolher outro barbeiro.');
-                    return;
-                }
-
-                let list = `⏰ Perfeito! Horários disponíveis para ${moment(state.date).format('DD/MM')}:\n\n`;
-                times.forEach((t, i) => list += `*${i + 1}* - ${t}\n`);
-                list += '\n*0* - 🔙 Voltar';
-
-                advanceState(from, state.step === 'date' ? 'time' : 'reschedule_time'); // <-- Usar advanceState
-                state.availableTimes = times;
-                await reply(list);
-                return;
-            }
-
-            // ===== FLUXO UNIFICADO DE ESCOLHA DE HORÁRIO (AGENDAR E REMARCAR) =====
-            const timeStep = state.step === 'time' || state.step === 'reschedule_time';
-            if (timeStep) {
-                // "0" ou "voltar" já é tratado globalmente
-
-                const index = parseInt(text) - 1;
-                if (isNaN(index) || !state.availableTimes[index]) {
-                    await reply('❌ Horário inválido. Escolha um número da lista ou *0* para voltar.');
-                    return;
-                }
-                state.time = state.availableTimes[index];
-
-                const dataHoraEscolhida = moment(`${state.date} ${state.time}`, 'YYYY-MM-DD HH:mm');
-                if (dataHoraEscolhida.isBefore(moment())) {
-                    await reply('❌ Você não pode agendar para um horário que já passou. Por favor, escolha outro horário ou *0* para voltar.');
-                    return;
-                }
-
-                advanceState(from, state.step === 'time' ? 'confirm' : 'reschedule_confirm'); // <-- Usar advanceState
-                await reply(
-                    `✅ Por favor, confirme os detalhes:\n\n` +
-                    `*Barbeiro:* ${state.barber_name}\n` +
-                    `*Data:* ${moment(state.date).format('dddd, DD/MM/YYYY')}\n` +
-                    `*Horário:* ${state.time}\n\n` +
-                    `*1* - 👍 Confirmar\n*0* - 👎 Cancelar`
-                );
-                return;
-            }
-
-            // ===== CONFIRMAÇÃO FINAL DE AGENDAMENTO =====
-            if (state.step === 'confirm') {
-                // "0" ou "voltar" já é tratado globalmente
-
+            if (state.step === 'reminder_options' || state.step === 'manage_select_action') {
                 if (text === '1') {
-                    try {
-                        const nomeCliente = msg.pushName || 'Cliente WhatsApp';
-                        await axios.post('http://localhost:3000/appointments', {
-                            barber_id: state.barber_id,
-                            cliente_nome: nomeCliente,
-                            cliente_numero: fromNumber,
-                            data_hora: `${state.date} ${state.time}`
-                        });
-                        await reply(`✅ Show! Seu agendamento foi confirmado para ${moment(state.date).format('DD/MM')} às ${state.time} com ${state.barber_name}. Até lá!`);
-                     } catch (err) {
-                        if (err.response && err.response.status === 409) {
-                            await reply('❌ Ops! Este horário acabou de ser ocupado por outra pessoa. Por favor, digite *0* para voltar e tentar novamente escolhendo outro horário.');
-                        } else {
-                            await reply('❌ Ocorreu um erro ao salvar seu agendamento. Por favor, tente novamente em alguns instantes. Se o problema persistir, contate o suporte.');
-                            console.error("Erro ao agendar:", err);
-                        }
+                    // Remarcar
+                    const appointmentId = state.selectedAppointment?.id;
+                    if (!appointmentId) {
+                        await reply('❌ Desculpe, não consegui encontrar o agendamento. Por favor, tente novamente ou digite *0* para voltar ao menu principal.');
+                        resetState(from);
+                        return;
                     }
-                    resetState(from); // Conclui o fluxo e volta ao menu principal
+                    // Mantém o barber_id e data para remarcação
+                    state.barber_id = state.selectedAppointment.barber_id;
+                    state.barber_name = (barbers.find(b => b.id === state.barber_id) || {}).nome;
+                    advanceState(from, 'reschedule_date');
+                    const diasDisponiveis = Array.from({ length: 7 }, (_, i) => moment().add(i, 'days')).filter(d => d.isSameOrAfter(moment(), 'day'));
+                    let listaDias = '📅 Ótimo! Agora escolha o novo dia para o seu agendamento:\n\n';
+                    diasDisponiveis.forEach((d, i) => {
+                        listaDias += `*${i + 1}* - ${d.format('dddd, DD/MM')}\n`;
+                    });
+                    listaDias += '\n*0* - 🔙 Voltar';
+                    state.availableDates = diasDisponiveis.map(d => d.format('YYYY-MM-DD'));
+                    await reply(listaDias);
                     return;
                 }
-                await reply('❌ Opção inválida. Digite *1* para confirmar ou *0* para cancelar.');
-                return;
-            }
-
-            // ===== CONFIRMAÇÃO FINAL DE REMARCAÇÃO =====
-            if (state.step === 'reschedule_confirm') {
-                // "0" ou "voltar" já é tratado globalmente
-
-                if (text === '1') {
+                if (text === '2') {
+                    // Cancelar
+                    const appointmentId = state.selectedAppointment?.id;
+                    if (!appointmentId) {
+                        await reply('❌ Desculpe, não consegui encontrar o agendamento para cancelar. Por favor, tente novamente ou digite *0* para voltar ao menu principal.');
+                        resetState(from);
+                        return;
+                    }
                     try {
-                        await axios.put(`http://localhost:3000/appointments/${state.selectedAppointment.id}`, {
-                            barber_id: state.barber_id,
-                            cliente_nome: state.selectedAppointment.cliente_nome,
-                            cliente_numero: state.selectedAppointment.cliente_numero,
-                            data_hora: `${state.date} ${state.time}`,
-                            status: 'remarcado',
-                            lembrete_enviado: false // Reseta o lembrete para a nova data
-                        });
-                        await reply(`✅ Agendamento remarcado com sucesso para ${moment(state.date).format('DD/MM')} às ${state.time} com ${state.barber_name}.`);
+                        await apiClient.delete(`/appointments/${appointmentId}`);
+                        await reply('✅ Agendamento cancelado com sucesso.');
                     } catch (err) {
-                        await reply('❌ Ocorreu um erro ao tentar remarcar. Por favor, tente novamente ou digite *0* para voltar.');
-                        console.error("Erro ao remarcar:", err);
+                        await reply('❌ Ocorreu um erro ao cancelar o agendamento. Por favor, tente novamente mais tarde.');
                     }
-                    resetState(from); // Conclui o fluxo e volta ao menu principal
+                    resetState(from);
                     return;
                 }
-                await reply('❌ Opção inválida. Digite *1* para confirmar ou *0* para cancelar.');
-                return;
+                if (text === '3') {
+                    // Agendar novo (a partir do reminder_options)
+                    let list = 'Qual barbeiro você prefere?\n\n';
+                    barbers.forEach(b => list += `*${b.id}* - ${b.nome}\n`);
+                    list += '\n*0* - 🔙 Voltar';
+                    advanceState(from, 'barber');
+                    await reply(list);
+                    return;
+                }
             }
 
-            // Se a mensagem não se encaixa em nenhum estado e não é o menu inicial
-            if (state.step !== 'menu') {
-                await reply('Não entendi. Por favor, escolha uma opção válida para o passo atual, ou digite *0* para voltar.');
-                // Não reseta o estado aqui, permite que o usuário tente novamente ou use o "0" para voltar
-            } else {
-                // Se estiver no menu e a entrada for inválida
-                await reply('Desculpe, não entendi. Por favor, diga "oi" ou escolha uma opção do menu:\n\n*1* - 📅 Agendar um horário\n*2* - 💈 Ver serviços e valores\n*3* - 📌 Ver nossa localização\n*4* - 🔄 Remarcar ou Cancelar um horário');
+            if (state.step === 'manage_select_appointment') {
+                const choice = parseInt(text);
+                if (choice > 0 && choice <= state.appointments.length) {
+                    state.selectedAppointment = state.appointments[choice - 1];
+                    advanceState(from, 'manage_select_action');
+                    await reply(`O que deseja fazer com o agendamento de ${moment(state.selectedAppointment.data_hora).format('DD/MM [às] HH:mm')}?\n\n*1* - 🔄 Remarcar\n*2* - ❌ Cancelar\n\n*0* - 🔙 Voltar`);
+                    return;
+                }
             }
 
+            // ===== FLUXO DE AGENDAMENTO (novo ou remarcação) =====
+            if (state.step === 'barber' || state.step === 'reschedule_barber') {
+                const choice = parseInt(text);
+                const selectedBarber = barbers.find(b => b.id === choice);
+                if (selectedBarber) {
+                    state.barber_id = selectedBarber.id;
+                    state.barber_name = selectedBarber.nome;
+                    advanceState(from, state.step === 'reschedule_barber' ? 'reschedule_date' : 'date');
+                    const diasDisponiveis = Array.from({ length: 7 }, (_, i) => moment().add(i, 'days')).filter(d => d.isSameOrAfter(moment(), 'day'));
+                    let listaDias = '📅 Ótimo! Agora escolha o dia:\n\n';
+                    diasDisponiveis.forEach((d, i) => {
+                        listaDias += `*${i + 1}* - ${d.format('dddd, DD/MM')}\n`;
+                    });
+                    listaDias += '\n*0* - 🔙 Voltar';
+                    state.availableDates = diasDisponiveis.map(d => d.format('YYYY-MM-DD'));
+                    await reply(listaDias);
+                    return;
+                }
+            }
+
+            if (state.step === 'date' || state.step === 'reschedule_date') {
+                const choice = parseInt(text);
+                if (choice > 0 && choice <= state.availableDates.length) {
+                    state.date = state.availableDates[choice - 1];
+                    advanceState(from, state.step === 'reschedule_date' ? 'reschedule_time' : 'time');
+                    const times = await getAvailableTimes(state.barber_id, state.date);
+                    if (times.length === 0) {
+                        await reply('❌ Nenhum horário disponível para este dia com este barbeiro. Por favor, digite *0* para escolher outro dia ou *0* novamente para escolher outro barbeiro.');
+                        goBackState(from);
+                        goBackState(from);
+                        return;
+                    }
+                    let listTimes = `⏰ Perfeito! Horários disponíveis para ${moment(state.date).format('DD/MM')}:\n\n`;
+                    times.forEach((t, i) => listTimes += `*${i + 1}* - ${t}\n`);
+                    listTimes += '\n*0* - 🔙 Voltar';
+                    state.availableTimes = times;
+                    await reply(listTimes);
+                    return;
+                }
+            }
+
+            if (state.step === 'time' || state.step === 'reschedule_time') {
+                const choice = parseInt(text);
+                if (choice > 0 && choice <= state.availableTimes.length) {
+                    state.time = state.availableTimes[choice - 1];
+                    advanceState(from, state.step === 'reschedule_time' ? 'reschedule_confirm' : 'confirm');
+                    await reply(`✅ Por favor, confirme os detalhes:\n\n*Barbeiro:* ${state.barber_name}\n*Data:* ${moment(state.date).format('dddd, DD/MM/YYYY')}\n*Horário:* ${state.time}\n\n*1* - 👍 Confirmar\n*0* - 👎 Cancelar`);
+                    return;
+                }
+            }
+
+            if (state.step === 'confirm' || state.step === 'reschedule_confirm') {
+                if (text === '1') {
+                    const appointmentData = {
+                        barber_id: state.barber_id,
+                        cliente_numero: fromNumber,
+                        cliente_nome: msg.pushName || 'Cliente',
+                        data_hora: `${state.date} ${state.time}:00`,
+                        // Aqui você pode adicionar outros campos, como serviço, se necessário
+                    };
+                    try {
+                        if (state.step === 'reschedule_confirm') {
+                            await apiClient.put(`/appointments/${state.selectedAppointment.id}`, appointmentData);
+                            await reply('✅ Agendamento remarcado com sucesso!');
+                        } else {
+                            await apiClient.post('/appointments', appointmentData);
+                            await reply('✅ Agendamento criado com sucesso!');
+                        }
+                    } catch (err) {
+                        console.error('❌ Erro ao salvar agendamento na API:', err);
+                        await reply('❌ Ocorreu um erro ao salvar seu agendamento. Por favor, tente novamente mais tarde.');
+                    }
+                    resetState(from);
+                    return;
+                }
+                if (text === '0') {
+                    await reply('❌ Agendamento cancelado. Volte quando quiser!');
+                    resetState(from);
+                    return;
+                }
+            }
 
         } catch (error) {
-            console.error(`[ERROR_HANDLER] Erro ao processar mensagem do usuário ${fromNumber}:`, error);
-            await reply("🤖 Desculpe, encontrei um erro interno. Tente novamente em instantes. Se o problema persistir, contate o suporte.");
+            console.error('❌ Erro no fluxo do chatbot:', error);
+            await reply('❌ Desculpe, algo deu errado. Por favor, digite "oi" para recomeçar.');
             resetState(from);
         }
     });
 }
 
-
-// ##################################################################
-// ##              ROTINA DE LEMBRETES (CRON)                      ##
-// ##################################################################
-cron.schedule('*/5 * * * *', async () => { // Roda a cada 5 minutos para mais precisão
-    if (connectionState !== 'connected') {
-        return; // Bot não está conectado, não faz nada
-    }
-
-    console.log('🔔 [CRON] Verificando agendamentos para enviar lembretes...');
-    try {
-        const { data: appointments } = await axios.get('http://localhost:3000/appointments');
-        const now = moment();
-
-        for (const appt of appointments) {
-            // Se o lembrete já foi enviado (1) ou o status é 'cancelado', pula
-            if (appt.lembrete_enviado || appt.status === 'cancelado') {
-                continue;
-            }
-
-            const apptTime = moment(appt.data_hora);
-            const oneHourBefore = apptTime.clone().subtract(1, 'hour');
-
-            // Envia lembrete se estivermos na janela de 1 hora antes do agendamento
-            if (now.isBetween(oneHourBefore, apptTime)) {
-                const msg = `⏰ Olá, ${appt.cliente_nome}! Passando para lembrar do seu horário na barbearia hoje às *${apptTime.format('HH:mm')}*. Te esperamos!`;
-
-                const clientJid = `${appt.cliente_numero}@s.whatsapp.net`;
-
-                cron.schedule('*/5 * * * *', async () => {
-    if (connectionState !== 'connected') return;
-
-    console.log('🔔 [CRON] Verificando agendamentos para enviar lembretes...');
-    try {
-        const { data: appointments } = await axios.get('http://localhost:3000/appointments');
-        const now = moment();
-
-        for (const appt of appointments) {
-            if (appt.lembrete_enviado || appt.status === 'cancelado') {
-                continue;
-            }
-
-            const apptTime = moment(appt.data_hora);
-            const oneHourBefore = apptTime.clone().subtract(1, 'hour');
-
-            if (now.isBetween(oneHourBefore, apptTime)) {
-                const clientJid = `${appt.cliente_numero}@s.whatsapp.net`;
-                const msg = `⏰ Olá, ${appt.cliente_nome}! Passando para lembrar do seu horário na barbearia hoje às *${apptTime.format('HH:mm')}*. Te esperamos!`;
-
-                // =================================================================
-                // GUARDA DE SEGURANÇA E LOG DETALHADO - AQUI ESTÁ A MUDANÇA
-                // =================================================================
-                console.log(`[CRON_GUARD] Preparando lembrete para Appointment ID: ${appt.id}. Destinatário no DB: ${clientJid}. Mensagem: "${msg}"`);
-                
-                // Verificação extra de sanidade: não envia se o número for inválido/curto.
-                if (!appt.cliente_numero || appt.cliente_numero.length < 10) {
-                    console.error(`[CRON_FAIL] Lembrete para Appointment ID: ${appt.id} BLOQUEADO devido a número inválido: ${appt.cliente_numero}`);
-                    continue; // Pula para o próximo agendamento
-                }
-                
-                await sock.sendMessage(clientJid, { text: msg });
-                console.log(`[CRON_SUCCESS] Lembrete para Appointment ID: ${appt.id} enviado com sucesso para ${clientJid}.`);
-
-                await axios.put(`http://localhost:3000/appointments/${appt.id}`, {
-                    ...appt,
-                    lembrete_enviado: true
-                });
-            }
-        }
-    } catch (err) {
-        console.error('❌ [CRON] Erro fatal ao executar a tarefa de lembretes:', err.message);
-    }
-});
-
-                // Atualiza o status no banco para não enviar novamente
-                await axios.put(`http://localhost:3000/appointments/${appt.id}`, { lembrete_enviado: true });
-            }
-        }
-    } catch (error) {
-        console.error('❌ [CRON] Erro ao enviar lembretes:', error.message);
-    }
-});
-
-// ##################################################################
-// ##              ROTAS DA API WEB (EXPRESS)                      ##
-// ##################################################################
-
-// Rota para obter o QR Code
+// Inicia o bot e o servidor web
+connectToWhatsApp();
 app.get('/qrcode', (req, res) => {
     if (connectionState === 'qr' && qrCodeImage) {
-        res.json({ status: 'qr', qrCode: qrCodeImage });
+        res.json({ status: 'qr', content: qrCodeImage });
     } else if (connectionState === 'connected') {
-        res.json({ status: 'connected', message: 'Bot já conectado.' });
+        res.json({ status: 'connected' });
     } else if (connectionState === 'disconnected') {
-        res.status(500).json({ status: 'disconnected', message: 'Bot desconectado. Tente reiniciar o processo.' });
+        res.json({ status: 'disconnected' });
     } else {
-        res.json({ status: connectionState, message: 'Aguardando QR Code ou conexão.' });
+        res.json({ status: 'loading' });
     }
 });
 
-// Rota para verificar o status da conexão
-app.get('/status', (req, res) => {
-    res.json({ status: connectionState });
-});
 
-// Inicia o servidor Express
-app.listen(port, () => {
-    console.log(`🌐 Servidor web iniciado na porta ${port}`);
-    console.log(`Acesse http://localhost:${port}/qrcode para ver o QR Code.`);
-    connectToWhatsApp(); // Inicia a conexão com o WhatsApp ao iniciar o servidor
+app.listen(PORT, () => {
+    console.log(`🚀 Servidor Express rodando na porta ${PORT}`);
+    console.log(`🌐 Acesse http://localhost:${PORT}/qrcode para ver o QR Code.`);
 });
-
-// Inicializa a conexão com o WhatsApp
-// connectToWhatsApp(); // Removido daqui, agora é chamado dentro do app.listen
