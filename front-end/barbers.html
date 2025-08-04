@@ -50,6 +50,24 @@
         </form>
         <div class="message" id="infoMessage"></div>
       </section>
+      <div id="editBarberModal" class="modal-overlay" style="display: none;">
+        <div class="modal-content card">
+            <header class="modal-header">
+                <h3>✏️ Editar Barbeiro</h3>
+                <span id="closeEditModal" class="close-btn">&times;</span>
+            </header>
+            <form id="editBarberForm">
+                <input type="hidden" id="editBarberId">
+                <label for="editBarberName">Nome:</label>
+                <input type="text" id="editBarberName" name="nome" required />
+
+                <label for="editBarberPhone">Telefone:</label>
+                <input type="tel" id="editBarberPhone" name="telefone" />
+
+                <button type="submit">Salvar Alterações</button>
+            </form>
+        </div>
+      </div>
     </main>
   </div>
 

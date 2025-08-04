@@ -25,7 +25,7 @@ module.exports = {
       max_memory_restart: '300M',
       env: {
         NODE_ENV: 'production',
-        API_KEY: '98ef615c-4d70-4f63-81bd-59c3c9070576',
+        API_KEY: '09ae0d52-7fe9-498d-a03a-e459df99abb6',
         BARBEARIA_ID: '1',
         AUTH_INFO_PATH: 'baileys_auth_info_barbearia_1',
         PORT: 3005
@@ -40,7 +40,7 @@ module.exports = {
       max_memory_restart: '300M',
       env: {
         NODE_ENV: 'production',
-        API_KEY: 'e657e3a2-c73c-407c-a8f9-5c7ca0be252e', // ⬅️ Chave da segunda barbearia
+        API_KEY: '03ba3d1a-485b-40a0-bdcb-08f2b2a308ed', // ⬅️ Chave da segunda barbearia
         BARBEARIA_ID: '2',
         AUTH_INFO_PATH: 'baileys_auth_info_barbearia_2',
         PORT: 3006

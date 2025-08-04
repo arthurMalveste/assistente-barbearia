@@ -29,7 +29,7 @@ require('moment/locale/pt-br');
 moment.locale('pt-br');
 
 // Variáveis de Configuração Multi-tenant
-const API_KEY = process.env.API_KEY || '98ef615c-4d70-4f63-81bd-59c3c9070576';
+const API_KEY = process.env.API_KEY || '03ba3d1a-485b-40a0-bdcb-08f2b2a308ed';
 const PORT = process.env.PORT || 3005;
 const AUTH_INFO_PATH = process.env.AUTH_INFO_PATH || 'baileys_auth_info_multi';
 

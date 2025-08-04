@@ -109,27 +109,50 @@ app.get('/barbers/:id', (req, res) => {
 });
 
 // Rota para atualizar um barbeiro
+// Rota para atualizar um barbeiro
 app.put('/barbers/:id', (req, res) => {
-    const { id } = req.params;
+    // 1. Converter o ID da URL (string) para um número inteiro.
+    const id = parseInt(req.params.id, 10);
+
+    // 2. Adicionar uma verificação para garantir que o ID é um número válido.
+    if (isNaN(id)) {
+        return res.status(400).json({ error: 'ID do barbeiro inválido.' });
+    }
+
     const { nome, telefone } = req.body;
     const barbearia_id = req.barbearia_id;
     if (!nome && !telefone) {
         return res.status(400).json({ error: 'Pelo menos o nome ou o telefone deve ser fornecido.' });
     }
+
+    // A query agora receberá o 'id' como um número, funcionando corretamente.
     db.run('UPDATE barbers SET nome = COALESCE(?, nome), telefone = COALESCE(?, telefone) WHERE id = ? AND barbearia_id = ?', [nome, telefone, id, barbearia_id], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
-        if (this.changes === 0) return res.status(404).json({ error: 'Barbeiro não encontrado ou não atualizado.' });
+        if (err) {
+            console.error('Erro ao atualizar barbeiro no DB:', err);
+            return res.status(500).json({ error: err.message });
+        }
+        if (this.changes === 0) {
+            return res.status(404).json({ error: 'Barbeiro não encontrado ou não pertence a esta barbearia.' });
+        }
         res.json({ message: 'Barbeiro atualizado com sucesso.', changes: this.changes });
     });
 });
-
-// Rota para excluir um barbeiro
+// server.js - ROTA CORRIGIDA
 app.delete('/barbers/:id', (req, res) => {
-    const { id } = req.params;
+    const id = parseInt(req.params.id, 10); // CONVERTE PARA NÚMERO
+    if (isNaN(id)) {
+        return res.status(400).json({ error: 'ID do barbeiro inválido.' });
+    }
+
     const barbearia_id = req.barbearia_id;
     db.run('DELETE FROM barbers WHERE id = ? AND barbearia_id = ?', [id, barbearia_id], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
-        if (this.changes === 0) return res.status(404).json({ error: 'Barbeiro não encontrado.' });
+        if (err) {
+            console.error('Erro ao excluir barbeiro no DB:', err);
+            return res.status(500).json({ error: err.message });
+        }
+        if (this.changes === 0) {
+            return res.status(404).json({ error: 'Barbeiro não encontrado ou não pertence a esta barbearia.' });
+        }
         res.json({ message: 'Barbeiro excluído com sucesso.', changes: this.changes });
     });
 });

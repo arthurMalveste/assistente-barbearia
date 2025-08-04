@@ -16,7 +16,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     const appointmentDateInput = document.getElementById('appointmentDate');
     const appointmentTimeSelect = document.getElementById('appointmentTime');
 
-   const API_KEY = '98ef615c-4d70-4f63-81bd-59c3c9070576';
+   const API_KEY = '03ba3d1a-485b-40a0-bdcb-08f2b2a308ed';
 
 
     let selectedEvent = null;
