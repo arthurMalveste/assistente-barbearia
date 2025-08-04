@@ -242,7 +242,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         const newAppointment = {
             barber_id: parseInt(appointmentBarberSelect.value),
             cliente_nome: document.getElementById('clientName').value,
-            cliente_numero: document.getElementById('clientPhone').value,
+            cliente_numero: document.getElementById('clientNumber').value,
             data_hora: `${appointmentDateInput.value} ${appointmentTimeSelect.value}:00`
         };
 
