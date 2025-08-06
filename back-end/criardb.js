@@ -1,7 +1,16 @@
-// criardb.js - VERSÃO MULTI-TENANT
+// criardb.js - VERSÃO REESTRUTURADA PARA MULTI-TENANCY
 const sqlite3 = require('sqlite3').verbose();
-// Alterado para colocar o DB em uma pasta 'db' para organização
-const db = new sqlite3.Database('./db/barbearia.db');
+const path = require('path');
+const fs = require('fs');
+
+// Garante que o diretório do banco de dados exista
+const dbDir = path.join(__dirname, 'db');
+if (!fs.existsSync(dbDir)) {
+    fs.mkdirSync(dbDir);
+}
+
+const dbPath = path.join(dbDir, 'barbearia.db');
+const db = new sqlite3.Database(dbPath);
 
 db.serialize(() => {
     console.log("✅ Iniciando criação do schema multi-tenant...");
@@ -11,12 +20,12 @@ db.serialize(() => {
         CREATE TABLE IF NOT EXISTS barbearias (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             nome_barbearia TEXT NOT NULL,
-            api_key TEXT NOT NULL UNIQUE, -- Chave de autenticação única para cada barbearia
+            api_key TEXT NOT NULL UNIQUE,
             data_criacao TEXT DEFAULT CURRENT_TIMESTAMP
         )
     `);
 
-    // Tabela de barbeiros, agora com referência à barbearia
+    // Tabela de barbeiros, agora com a coluna de relacionamento 'barbearia_id'
     db.run(`
         CREATE TABLE IF NOT EXISTS barbers (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -27,7 +36,7 @@ db.serialize(() => {
         )
     `);
 
-    // Tabela de agendamentos, também com referência à barbearia
+    // Tabela de agendamentos, também com 'barbearia_id'
     db.run(`
         CREATE TABLE IF NOT EXISTS appointments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,12 +47,12 @@ db.serialize(() => {
             barbearia_id INTEGER NOT NULL,
             status TEXT DEFAULT 'confirmado',
             lembrete_enviado BOOLEAN DEFAULT 0,
-            FOREIGN KEY (barber_id) REFERENCES barbers (id),
+            FOREIGN KEY (barber_id) REFERENCES barbers (id) ON DELETE CASCADE,
             FOREIGN KEY (barbearia_id) REFERENCES barbearias (id) ON DELETE CASCADE
         )
     `);
 
-    // Tabela de configurações, agora com chave composta para permitir configs por barbearia
+    // Tabela de configurações, agora com chave primária composta para permitir configs por barbearia
     db.run(`
         CREATE TABLE IF NOT EXISTS config (
             barbearia_id INTEGER NOT NULL,
@@ -53,10 +62,15 @@ db.serialize(() => {
             FOREIGN KEY (barbearia_id) REFERENCES barbearias (id) ON DELETE CASCADE
         )
     `);
+    
+    // Tabela de sequência do SQLite, não precisa ser criada manualmente.
 
     console.log("✅ Schema multi-tenant criado com sucesso!");
 });
 
-db.close(() => {
+db.close((err) => {
+    if (err) {
+        return console.error('❌ Erro ao fechar o banco de dados:', err.message);
+    }
     console.log("✅ Conexão com o banco de dados fechada.");
 });
