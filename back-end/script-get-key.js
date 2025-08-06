@@ -2,7 +2,7 @@
 const axios = require('axios');
 
 // Nome da barbearia que você quer criar
-const nomeBarbearia = "Barbearia Cliente 2";
+const nomeBarbearia = "Barbearia Cliente 5";
 
 async function createBarbeariaAndGetApiKey() {
     try {

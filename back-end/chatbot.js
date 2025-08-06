@@ -29,8 +29,8 @@ require('moment/locale/pt-br');
 moment.locale('pt-br');
 
 // Variáveis de Configuração Multi-tenant
-const API_KEY = process.env.API_KEY || '786c30c9-b215-4e00-94f6-929a6a13acf8';
-const PORT = process.env.PORT || 3005;
+const API_KEY = process.env.API_KEY || 'e657e3a2-c73c-407c-a8f9-5c7ca0be252e';
+const PORT = process.env.PORT || 3006;
 const AUTH_INFO_PATH = process.env.AUTH_INFO_PATH || 'baileys_auth_info_multi';
 
 // Cliente Axios com a API Key de autenticação

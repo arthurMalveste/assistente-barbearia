@@ -25,14 +25,29 @@ module.exports = {
       max_memory_restart: '300M',
       env: {
         NODE_ENV: 'production',
-        API_KEY: '09ae0d52-7fe9-498d-a03a-e459df99abb6',
+        API_KEY: '98ef615c-4d70-4f63-81bd-59c3c9070576',
         BARBEARIA_ID: '1',
         AUTH_INFO_PATH: 'baileys_auth_info_barbearia_1',
         PORT: 3005
       }
     },
     {
-      name: 'chatbot-barbearia-imperio',
+      name: 'Barbearia Raiz',
+      script: 'chatbot.js',
+      instances: 1,
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '300M',
+      env: {
+        NODE_ENV: 'production',
+        API_KEY: 'e657e3a2-c73c-407c-a8f9-5c7ca0be252e', // ⬅️ Chave da segunda barbearia
+        BARBEARIA_ID: '2',
+        AUTH_INFO_PATH: 'baileys_auth_info_barbearia_2',
+        PORT: 3006
+      }
+    },
+    {
+      name: 'chatbot-barbearia-outra barberia',
       script: 'chatbot.js',
       instances: 1,
       autorestart: true,
@@ -41,11 +56,13 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         API_KEY: '786c30c9-b215-4e00-94f6-929a6a13acf8', // ⬅️ Chave da segunda barbearia
-        BARBEARIA_ID: '2',
-        AUTH_INFO_PATH: 'baileys_auth_info_barbearia_2',
-        PORT: 3005
+        BARBEARIA_ID: '3',
+        AUTH_INFO_PATH: 'baileys_auth_info_barbearia_3',
+        PORT: 3007
       }
     }
   ]
 };
+
+
   

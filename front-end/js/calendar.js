@@ -16,7 +16,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     const appointmentDateInput = document.getElementById('appointmentDate');
     const appointmentTimeSelect = document.getElementById('appointmentTime');
 
-   const API_KEY = '786c30c9-b215-4e00-94f6-929a6a13acf8';
+   const API_KEY = 'e657e3a2-c73c-407c-a8f9-5c7ca0be252e';
 
 
     let selectedEvent = null;
@@ -56,27 +56,34 @@ document.addEventListener('DOMContentLoaded', async function () {
     }
 
     async function loadBarbers() {
-        barbers = await fetchBarbers();
-        console.log('Barbeiros carregados:', barbers);
+    barbers = await fetchBarbers();
+    console.log('Barbeiros carregados:', barbers);
 
-        barberMap = {};
-        barberFilter.innerHTML = `<option value="">Todos</option>`;
-        appointmentBarberSelect.innerHTML = `<option value="">Selecione um barbeiro</option>`;
-
-        barbers.forEach(b => {
-            barberMap[b.id] = b.nome;
-            const optionFilter = document.createElement('option');
-            optionFilter.value = b.id;
-            optionFilter.textContent = b.nome;
-            barberFilter.appendChild(optionFilter);
-
-            const optionForm = document.createElement('option');
-            optionForm.value = b.id;
-            optionForm.textContent = b.nome;
-            appointmentBarberSelect.appendChild(optionForm);
-        });
-        await loadBarbersList();
+    if (!Array.isArray(barbers)) {
+        console.error("Erro: a resposta da API /barbers não é uma lista:", barbers);
+        return;
     }
+
+    barberMap = {};
+    barberFilter.innerHTML = `<option value="">Todos</option>`;
+    appointmentBarberSelect.innerHTML = `<option value="">Selecione um barbeiro</option>`;
+
+    barbers.forEach(b => {
+        barberMap[b.id] = b.nome;
+
+        const optionFilter = document.createElement('option');
+        optionFilter.value = b.id;
+        optionFilter.textContent = b.nome;
+        barberFilter.appendChild(optionFilter);
+
+        const optionForm = document.createElement('option');
+        optionForm.value = b.id;
+        optionForm.textContent = b.nome;
+        appointmentBarberSelect.appendChild(optionForm);
+    });
+
+    await loadBarbersList();
+}
 
     async function loadBarbersList() {
         const container = document.getElementById('barbersListContainer');
