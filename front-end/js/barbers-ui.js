@@ -5,10 +5,23 @@ const message = document.getElementById('message');
 const infoForm = document.getElementById('infoForm');
 const infoMessage = document.getElementById('infoMessage');
 
+// Verifica o token JWT
+const token = localStorage.getItem('token');
+if (!token) {
+  window.location.href = 'login.html';
+}
+
+const authHeader = {
+  headers: {
+    'Authorization': 'Bearer ' + token,
+    'Content-Type': 'application/json'
+  }
+};
+
 // Carrega barbeiros
 async function loadBarbersList() {
   try {
-    const res = await fetch('http://localhost:3000/barbers');
+    const res = await fetch('http://localhost:3000/barbers', authHeader);
     const barbers = await res.json();
 
     if (!barbers.length) {
@@ -17,19 +30,18 @@ async function loadBarbersList() {
     }
 
     barbersListContainer.innerHTML = '';
-barbers.forEach(({ id, nome, telefone }) => {
-  const div = document.createElement('div');
-  div.className = 'barber-item';
-  div.innerHTML = `
-    <span><strong>${nome}</strong><br><small>${telefone || ''}</small></span>
-    <div>
-      <button class="edit" onclick="editBarber(${id}, '${nome}', '${telefone || ''}')">&#9998;</button>
-      <button class="delete" onclick="deleteBarber(${id})">&#128465;</button>
-    </div>
-  `;
-  barbersListContainer.appendChild(div);
-});
-
+    barbers.forEach(({ id, nome, telefone }) => {
+      const div = document.createElement('div');
+      div.className = 'barber-item';
+      div.innerHTML = `
+        <span><strong>${nome}</strong><br><small>${telefone || ''}</small></span>
+        <div>
+          <button class="edit" onclick="editBarber(${id}, '${nome}', '${telefone || ''}')">&#9998;</button>
+          <button class="delete" onclick="deleteBarber(${id})">&#128465;</button>
+        </div>
+      `;
+      barbersListContainer.appendChild(div);
+    });
   } catch (err) {
     barbersListContainer.innerHTML = '<p class="error">Erro ao carregar barbeiros.</p>';
   }
@@ -44,7 +56,7 @@ barberForm.addEventListener('submit', async (e) => {
   try {
     const res = await fetch('http://localhost:3000/barbers', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      ...authHeader,
       body: JSON.stringify({ nome, telefone })
     });
     const result = await res.json();
@@ -68,7 +80,7 @@ function editBarber(id, nomeAntigo, telefoneAntigo) {
   if (novoNome) {
     fetch(`http://localhost:3000/barbers/${id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      ...authHeader,
       body: JSON.stringify({ nome: novoNome, telefone: novoTelefone })
     }).then(loadBarbersList);
   }
@@ -78,7 +90,10 @@ function editBarber(id, nomeAntigo, telefoneAntigo) {
 async function deleteBarber(id) {
   if (!confirm('Deseja remover este barbeiro?')) return;
   try {
-    await fetch(`http://localhost:3000/barbers/${id}`, { method: 'DELETE' });
+    await fetch(`http://localhost:3000/barbers/${id}`, {
+      method: 'DELETE',
+      ...authHeader
+    });
     loadBarbersList();
   } catch (err) {
     alert('Erro ao remover barbeiro.');
@@ -88,7 +103,7 @@ async function deleteBarber(id) {
 // Carrega info da barbearia
 async function loadBarberInfo() {
   try {
-    const res = await fetch('http://localhost:3000/info');
+    const res = await fetch('http://localhost:3000/config', authHeader);
     const data = await res.json();
     document.getElementById('endereco').value = data.endereco || '';
     document.getElementById('sobre').value = data.descricao || '';
@@ -104,12 +119,20 @@ infoForm.addEventListener('submit', async (e) => {
   const sobre = document.getElementById('sobre').value;
 
   try {
-    const res = await fetch('http://localhost:3000/info', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ endereco, sobre })
+    const res1 = await fetch('http://localhost:3000/config', {
+      method: 'POST',
+      ...authHeader,
+      body: JSON.stringify({ chave: 'endereco', valor: endereco })
     });
-    infoMessage.textContent = res.ok ? '✅ Informações atualizadas com sucesso.' : '❌ Falha ao salvar.';
+    const res2 = await fetch('http://localhost:3000/config', {
+      method: 'POST',
+      ...authHeader,
+      body: JSON.stringify({ chave: 'descricao', valor: sobre })
+    });
+
+    infoMessage.textContent = (res1.ok && res2.ok)
+      ? '✅ Informações atualizadas com sucesso.'
+      : '❌ Falha ao salvar.';
   } catch (err) {
     infoMessage.textContent = '❌ Erro ao conectar ao servidor.';
   }

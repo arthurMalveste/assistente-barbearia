@@ -1,4 +1,14 @@
 document.addEventListener('DOMContentLoaded', async function () {
+    const token = localStorage.getItem('token');
+    if (!token) window.location.href = 'login.html';
+
+    const authHeader = {
+        headers: {
+            'Authorization': 'Bearer ' + token,
+            'Content-Type': 'application/json'
+        }
+    };
+
     const calendarEl = document.getElementById('calendar');
     const barberFilter = document.getElementById('barberFilter');
 
@@ -24,7 +34,7 @@ document.addEventListener('DOMContentLoaded', async function () {
 
     async function fetchBarbers() {
         try {
-            const res = await fetch('http://localhost:3000/barbers');
+            const res = await fetch('http://localhost:3000/barbers', authHeader);
             return await res.json();
         } catch (err) {
             console.error('Erro ao buscar barbeiros:', err);
@@ -34,7 +44,7 @@ document.addEventListener('DOMContentLoaded', async function () {
 
     async function fetchAppointments() {
         try {
-            const res = await fetch('http://localhost:3000/appointments');
+            const res = await fetch('http://localhost:3000/appointments', authHeader);
             return await res.json();
         } catch (err) {
             console.error('Erro ao buscar agendamentos:', err);
@@ -233,7 +243,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             const confirmCancel = confirm('Deseja realmente cancelar este agendamento?');
             if (confirmCancel) {
                 try {
-                    await fetch(`http://localhost:3000/appointments/${selectedEvent.id}`, { method: 'DELETE' });
+                    await fetch(`http://localhost:3000/appointments/${selectedEvent.id}`, { method: 'DELETE', ...authHeader });
                     alert('✅ Agendamento cancelado com sucesso!');
                     selectedEvent.remove();
                     modal.style.display = 'none';
@@ -283,7 +293,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         try {
             const res = await fetch('http://localhost:3000/appointments', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
                 body: JSON.stringify({
                     cliente_nome: clientName,
                     cliente_numero: clientNumber,
@@ -334,7 +344,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         if (!confirm(`Deseja remover o barbeiro "${nome}"?`)) return;
 
         try {
-            const res = await fetch(`http://localhost:3000/barbers/${id}`, { method: 'DELETE' });
+            const res = await fetch(`http://localhost:3000/barbers/${id}`, { method: 'DELETE', ...authHeader });
             if (!res.ok) {
                 const err = await res.json();
                 throw new Error(err.error || 'Erro ao remover barbeiro');

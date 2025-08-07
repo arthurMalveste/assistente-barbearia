@@ -58,6 +58,42 @@ const userState = {}; // Armazena o estado da conversa de cada usuário
 // Path para as credenciais do Baileys
 const authInfoPath = 'baileys_auth_info';
 
+
+let axiosInstance = null;
+
+async function main() {
+    try {
+        const loginRes = await axios.post('http://localhost:3000/auth/login', {
+            email: process.env.BARBEARIA_EMAIL,
+            senha: process.env.BARBEARIA_SENHA
+        });
+
+        const JWT_TOKEN = loginRes.data.token;
+
+        axiosInstance = axios.create({
+            baseURL: 'http://localhost:3000',
+            headers: {
+                Authorization: `Bearer ${JWT_TOKEN}`,
+                'Content-Type': 'application/json'
+            }
+        });
+
+        // Inicia o servidor web e o WhatsApp
+        app.listen(port, () => {
+            console.log(`🌐 Servidor web iniciado na porta ${port}`);
+            console.log(`Acesse http://localhost:${port}/qrcode para ver o QR Code.`);
+            connectToWhatsApp(); // Agora é chamado aqui após o login
+        });
+
+    } catch (err) {
+        console.error('❌ [LOGIN] Erro ao tentar autenticar com o servidor:', err.message);
+        process.exit(1);
+    }
+}
+
+main();
+
+
 // ##################################################################
 // ##               FUNÇÕES AUXILIARES E DE NEGÓCIO                ##
 // ##################################################################
@@ -100,20 +136,20 @@ function goBackState(from) {
 
 // Busca barbeiros da API (server.js)
 async function getBarbers() {
-    const res = await axios.get('http://localhost:3000/barbers');
+    const res = await axiosInstance.get('http://localhost:3000/barbers');
     return res.data;
 }
 
 // --- Busca agendamentos de um cliente específico ---
 async function getClientAppointments(phone) {
-    const res = await axios.get('http://localhost:3000/appointments');
+    const res = await axiosInstance.get('http://localhost:3000/appointments');
     // Garante que a comparação de números seja robusta
     return res.data.filter(a => a.cliente_numero && a.cliente_numero.includes(phone));
 }
 
 // Busca horários disponíveis para um barbeiro em uma data
 async function getAvailableTimes(barber_id, date) {
-    const res = await axios.get('http://localhost:3000/appointments');
+    const res = await axiosInstance.get('http://localhost:3000/appointments');
     const booked = res.data
         .filter(a => a.barber_id == barber_id && a.data_hora.startsWith(date))
         .map(a => moment(a.data_hora).format('HH:mm'));
@@ -467,7 +503,7 @@ async function connectToWhatsApp() {
                 }
                 if (text === '2') { // Cancelar
                     const appt = state.appointments[0];
-                    await axios.delete(`http://localhost:3000/appointments/${appt.id}`);
+                    await axiosInstance.delete(`http://localhost:3000/appointments/${appt.id}`);
                     await reply(`✅ Agendamento do dia ${moment(appt.data_hora).format('DD/MM [às] HH:mm')} foi cancelado com sucesso.`);
                     resetState(from); // Após a ação, volta ao menu principal
                     return;
@@ -512,7 +548,7 @@ async function connectToWhatsApp() {
                     return;
                 }
                 if (text === '2') { // Cancelar
-                    await axios.delete(`http://localhost:3000/appointments/${state.selectedAppointment.id}`);
+                    await axiosInstance.delete(`http://localhost:3000/appointments/${state.selectedAppointment.id}`);
                     await reply(`✅ Agendamento do dia ${moment(state.selectedAppointment.data_hora).format('DD/MM [às] HH:mm')} foi cancelado com sucesso.`);
                     resetState(from); // Após a ação, volta ao menu principal
                     return;
@@ -590,11 +626,13 @@ async function connectToWhatsApp() {
                 }
                 state.time = state.availableTimes[index];
 
-                const dataHoraEscolhida = moment(`${state.date} ${state.time}`, 'YYYY-MM-DD HH:mm');
-                if (dataHoraEscolhida.isBefore(moment())) {
-                    await reply('❌ Você não pode agendar para um horário que já passou. Por favor, escolha outro horário ou *0* para voltar.');
-                    return;
-                }
+                const now = moment().seconds(0).milliseconds(0);
+const dataHoraEscolhida = moment(`${state.date} ${state.time}`, 'YYYY-MM-DD HH:mm').seconds(0).milliseconds(0);
+
+if (dataHoraEscolhida.isBefore(now)) {
+  await reply('❌ Você não pode agendar para um horário que já passou. Por favor, escolha outro horário ou *0* para voltar.');
+  return;
+}
 
                 advanceState(from, state.step === 'time' ? 'confirm' : 'reschedule_confirm'); // <-- Usar advanceState
                 await reply(
@@ -614,7 +652,7 @@ async function connectToWhatsApp() {
                 if (text === '1') {
                     try {
                         const nomeCliente = msg.pushName || 'Cliente WhatsApp';
-                        await axios.post('http://localhost:3000/appointments', {
+                        await axiosInstance.post('http://localhost:3000/appointments', {
                             barber_id: state.barber_id,
                             cliente_nome: nomeCliente,
                             cliente_numero: fromNumber,
@@ -642,7 +680,7 @@ async function connectToWhatsApp() {
 
                 if (text === '1') {
                     try {
-                        await axios.put(`http://localhost:3000/appointments/${state.selectedAppointment.id}`, {
+                        await axiosInstance.put(`http://localhost:3000/appointments/${state.selectedAppointment.id}`, {
                             barber_id: state.barber_id,
                             cliente_nome: state.selectedAppointment.cliente_nome,
                             cliente_numero: state.selectedAppointment.cliente_numero,
@@ -691,7 +729,7 @@ cron.schedule('*/5 * * * *', async () => { // Roda a cada 5 minutos para mais pr
 
     console.log('🔔 [CRON] Verificando agendamentos para enviar lembretes...');
     try {
-        const { data: appointments } = await axios.get('http://localhost:3000/appointments');
+        const { data: appointments } = await axiosInstance.get('http://localhost:3000/appointments');
         const now = moment();
 
         for (const appt of appointments) {
@@ -714,7 +752,7 @@ cron.schedule('*/5 * * * *', async () => { // Roda a cada 5 minutos para mais pr
 
     console.log('🔔 [CRON] Verificando agendamentos para enviar lembretes...');
     try {
-        const { data: appointments } = await axios.get('http://localhost:3000/appointments');
+        const { data: appointments } = await axiosInstance.get('http://localhost:3000/appointments');
         const now = moment();
 
         for (const appt of appointments) {
@@ -743,7 +781,7 @@ cron.schedule('*/5 * * * *', async () => { // Roda a cada 5 minutos para mais pr
                 await sock.sendMessage(clientJid, { text: msg });
                 console.log(`[CRON_SUCCESS] Lembrete para Appointment ID: ${appt.id} enviado com sucesso para ${clientJid}.`);
 
-                await axios.put(`http://localhost:3000/appointments/${appt.id}`, {
+                await axiosInstance.put(`http://localhost:3000/appointments/${appt.id}`, {
                     ...appt,
                     lembrete_enviado: true
                 });
@@ -755,7 +793,7 @@ cron.schedule('*/5 * * * *', async () => { // Roda a cada 5 minutos para mais pr
 });
 
                 // Atualiza o status no banco para não enviar novamente
-                await axios.put(`http://localhost:3000/appointments/${appt.id}`, { lembrete_enviado: true });
+                await axiosInstance.put(`http://localhost:3000/appointments/${appt.id}`, { lembrete_enviado: true });
             }
         }
     } catch (error) {

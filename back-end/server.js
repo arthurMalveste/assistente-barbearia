@@ -1,198 +1,160 @@
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
-const bodyParser = require('body-parser');
 const cors = require('cors');
 const path = require('path');
-// ALTERAÇÃO MULTI-TENANT: Adicionado para gerar chaves de API únicas e seguras
+const bodyParser = require('body-parser');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 const port = 3000;
+const SECRET = 'chave-secreta-segura'; // Substituir por variável de ambiente em produção
 
 app.use(cors());
 app.use(bodyParser.json());
 
 const dbPath = path.join(__dirname, 'db', 'barbearia.db');
-
 const db = new sqlite3.Database(dbPath, (err) => {
-  if (err) {
-    console.error('❌ Erro ao conectar ao banco:', err);
-  } else {
-    console.log(`✅ Banco conectado com sucesso: ${dbPath}`);
-  }
+  if (err) console.error('❌ Erro ao conectar ao banco:', err.message);
+  else console.log('✅ Banco conectado com sucesso.');
 });
-
-// ==========================================================
-// ALTERAÇÃO MULTI-TENANT: ROTA PÚBLICA PARA GERENCIAR BARBEARIAS
-// ==========================================================
-
-// Rota para criar uma nova barbearia (tenant). Esta é a única rota que não requer autenticação.
-app.post('/barbearias', (req, res) => {
-  const { nome_barbearia } = req.body;
-  if (!nome_barbearia) {
-    return res.status(400).json({ error: 'O nome da barbearia é obrigatório.' });
+app.post('/barbearias', async (req, res) => {
+  const { nome_barbearia, email, senha } = req.body;
+  if (!nome_barbearia || !email || !senha) {
+    return res.status(400).json({ error: 'Todos os campos são obrigatórios.' });
   }
-  const apiKey = uuidv4(); // Gera uma chave de API única
 
-  db.run('INSERT INTO barbearias (nome_barbearia, api_key) VALUES (?, ?)', [nome_barbearia, apiKey], function(err) {
-    if (err) {
-      return res.status(500).json({ error: 'Erro ao criar a barbearia.', details: err.message });
+  const senha_hash = await bcrypt.hash(senha, 10);
+  const api_key = uuidv4(); // Pode ser mantida como identificador interno (não usada no frontend)
+
+  db.run(
+    `INSERT INTO barbearias (nome_barbearia, email, senha_hash, api_key) VALUES (?, ?, ?, ?)`,
+    [nome_barbearia, email, senha_hash, api_key],
+    function (err) {
+      if (err) return res.status(500).json({ error: 'Erro ao criar barbearia.', details: err.message });
+      res.status(201).json({ message: 'Barbearia criada com sucesso.' });
     }
-    console.log(`[TENANT CREATED] Barbearia '${nome_barbearia}' criada com ID ${this.lastID}`);
-    res.status(201).json({ id: this.lastID, nome_barbearia, api_key: apiKey });
+  );
+});
+app.post('/auth/login', (req, res) => {
+  const { email, senha } = req.body;
+  if (!email || !senha) return res.status(400).json({ error: 'Email e senha são obrigatórios.' });
+
+  db.get(`SELECT * FROM barbearias WHERE email = ?`, [email], async (err, barbearia) => {
+    if (err) return res.status(500).json({ error: 'Erro interno ao autenticar.' });
+    if (!barbearia) return res.status(401).json({ error: 'Email não encontrado.' });
+
+    const valid = await bcrypt.compare(senha, barbearia.senha_hash);
+    if (!valid) return res.status(401).json({ error: 'Senha incorreta.' });
+
+    const token = jwt.sign({ barbearia_id: barbearia.id }, SECRET, { expiresIn: '12h' });
+    res.json({ token, nome_barbearia: barbearia.nome_barbearia });
   });
 });
-
-// ==========================================================
-// ALTERAÇÃO MULTI-TENANT: MIDDLEWARE DE AUTENTICAÇÃO - O GUARDIÃO
-// ==========================================================
-
 const authenticate = (req, res, next) => {
-    const apiKey = req.header('X-API-Key');
-    if (!apiKey) {
-        return res.status(401).json({ error: 'Acesso não autorizado. Chave de API não fornecida.' });
-    }
+  const authHeader = req.headers['authorization'];
+  const token = authHeader?.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'Token não fornecido.' });
 
-    db.get('SELECT id FROM barbearias WHERE api_key = ?', [apiKey], (err, row) => {
-        if (err) {
-            return res.status(500).json({ error: 'Erro interno do servidor ao validar a chave.' });
-        }
-        if (!row) {
-            return res.status(403).json({ error: 'Acesso negado. Chave de API inválida.' });
-        }
-        // Anexa o ID da barbearia à requisição para ser usado em todas as rotas protegidas
-        req.barbearia_id = row.id;
-        next();
-    });
+  jwt.verify(token, SECRET, (err, decoded) => {
+    if (err) return res.status(403).json({ error: 'Token inválido.' });
+    req.barbearia_id = decoded.barbearia_id;
+    next();
+  });
 };
-
-// Aplica o middleware a todas as rotas definidas abaixo desta linha.
 app.use(authenticate);
-
-
-// ==============================
-// ROTAS - BARBEIROS (PROTEGIDAS)
-// ==============================
-
-// Criar novo barbeiro PARA a barbearia autenticada
 app.post('/barbers', (req, res) => {
   const { nome, telefone } = req.body;
-  if (!nome) return res.status(400).json({ error: 'Nome é obrigatório.' });
+  if (!nome) return res.status(400).json({ error: 'Nome obrigatório.' });
 
-  // ALTERAÇÃO MULTI-TENANT: Usa o ID da barbearia injetado pelo middleware
-  const barbearia_id = req.barbearia_id;
-
-  db.run('INSERT INTO barbers (nome, telefone, barbearia_id) VALUES (?, ?, ?)', [nome, telefone || null, barbearia_id], function (err) {
-    if (err) return res.status(500).json({ error: err.message });
-    res.status(201).json({ id: this.lastID, nome, telefone, barbearia_id });
-  });
+  db.run('INSERT INTO barbers (nome, telefone, barbearia_id) VALUES (?, ?, ?)',
+    [nome, telefone || null, req.barbearia_id],
+    function (err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.status(201).json({ id: this.lastID, nome, telefone });
+    });
 });
 
-// Listar barbeiros APENAS da barbearia autenticada
 app.get('/barbers', (req, res) => {
-  // ALTERAÇÃO MULTI-TENANT: Adiciona cláusula WHERE para filtrar pela barbearia
   db.all('SELECT * FROM barbers WHERE barbearia_id = ?', [req.barbearia_id], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(rows);
   });
 });
 
-// Atualizar um barbeiro da barbearia autenticada
 app.put('/barbers/:id', (req, res) => {
   const { nome, telefone } = req.body;
   const id = parseInt(req.params.id);
-  if (!nome) return res.status(400).json({ error: 'Nome é obrigatório.' });
+  if (!nome) return res.status(400).json({ error: 'Nome obrigatório.' });
 
-  // ALTERAÇÃO MULTI-TENANT: Garante que a atualização só afete a barbearia correta
-  db.run('UPDATE barbers SET nome = ?, telefone = ? WHERE id = ? AND barbearia_id = ?', [nome, telefone || null, id, req.barbearia_id], function (err) {
-    if (err) return res.status(500).json({ error: err.message });
-    if (this.changes === 0) return res.status(404).json({ error: 'Barbeiro não encontrado ou não pertence a esta barbearia.' });
-    res.json({ message: 'Barbeiro atualizado com sucesso.' });
-  });
+  db.run('UPDATE barbers SET nome = ?, telefone = ? WHERE id = ? AND barbearia_id = ?',
+    [nome, telefone || null, id, req.barbearia_id],
+    function (err) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (this.changes === 0) return res.status(404).json({ error: 'Barbeiro não encontrado.' });
+      res.json({ message: 'Atualizado com sucesso.' });
+    });
 });
 
-// Remover um barbeiro da barbearia autenticada
 app.delete('/barbers/:id', (req, res) => {
   const id = parseInt(req.params.id);
-  // ALTERAÇÃO MULTI-TENANT: Garante que o delete só afete a barbearia correta
   db.run('DELETE FROM barbers WHERE id = ? AND barbearia_id = ?', [id, req.barbearia_id], function (err) {
     if (err) return res.status(500).json({ error: err.message });
-    if (this.changes === 0) return res.status(404).json({ error: 'Barbeiro não encontrado ou não pertence a esta barbearia.' });
-    res.json({ message: 'Barbeiro removido com sucesso.' });
+    if (this.changes === 0) return res.status(404).json({ error: 'Barbeiro não encontrado.' });
+    res.json({ message: 'Removido com sucesso.' });
   });
 });
-
-// ==============================
-// ROTAS - AGENDA (PROTEGIDAS)
-// ==============================
-
-// Listar agendamentos APENAS da barbearia autenticada
 app.get('/appointments', (req, res) => {
-  // ALTERAÇÃO MULTI-TENANT: Adiciona cláusula WHERE
   db.all('SELECT * FROM appointments WHERE barbearia_id = ?', [req.barbearia_id], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(rows);
   });
 });
 
-// Criar agendamento PARA a barbearia autenticada
 app.post('/appointments', (req, res) => {
   const { barber_id, cliente_nome, cliente_numero, data_hora } = req.body;
   if (!barber_id || !cliente_nome || !cliente_numero || !data_hora) {
-    return res.status(400).json({ error: 'Todos os campos são obrigatórios.' });
+    return res.status(400).json({ error: 'Campos obrigatórios ausentes.' });
   }
-  const barbearia_id = req.barbearia_id;
 
-  // ALTERAÇÃO MULTI-TENANT: A verificação de conflito agora também considera a barbearia
-  db.get('SELECT * FROM appointments WHERE barber_id = ? AND data_hora = ? AND barbearia_id = ?', [barber_id, data_hora, barbearia_id], (err, row) => {
-    if (err) return res.status(500).json({ error: err.message });
-    if (row) return res.status(409).json({ error: 'Horário já está ocupado para esse barbeiro.' });
-    
-    // ALTERAÇÃO MULTI-TENANT: Insere o barbearia_id
-    db.run('INSERT INTO appointments (barber_id, cliente_nome, cliente_numero, data_hora, barbearia_id) VALUES (?, ?, ?, ?, ?)', [barber_id, cliente_nome, cliente_numero, data_hora, barbearia_id], function (err) {
-        if (err) return res.status(500).json({ error: err.message });
-        res.status(201).json({ id: this.lastID, message: 'Agendamento criado com sucesso.' });
-      }
-    );
-  });
-});
+  db.get(`SELECT * FROM appointments WHERE barber_id = ? AND data_hora = ? AND barbearia_id = ?`,
+    [barber_id, data_hora, req.barbearia_id],
+    (err, existing) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (existing) return res.status(409).json({ error: 'Horário já ocupado.' });
 
-// Atualizar um agendamento da barbearia autenticada
-app.put('/appointments/:id', (req, res) => {
-    const id = parseInt(req.params.id);
-    const { barber_id, cliente_nome, cliente_numero, data_hora, status, lembrete_enviado } = req.body;
-    if (!data_hora) return res.status(400).json({ error: 'Data/hora obrigatória.' });
-
-    // ALTERAÇÃO MULTI-TENANT: Adiciona o barbearia_id no WHERE
-    db.run(
-        `UPDATE appointments SET barber_id = ?, cliente_nome = ?, cliente_numero = ?, data_hora = ?, status = ?, lembrete_enviado = ? WHERE id = ? AND barbearia_id = ?`,
-        [barber_id, cliente_nome, cliente_numero, data_hora, status || 'confirmado', lembrete_enviado ? 1 : 0, id, req.barbearia_id],
-        function(err) {
-            if (err) return res.status(500).json({ error: err.message });
-            if (this.changes === 0) return res.status(404).json({ error: 'Agendamento não encontrado ou não pertence a esta barbearia.' });
-            res.json({ message: 'Agendamento atualizado com sucesso.' });
-        }
-    );
-});
-
-// Remover um agendamento da barbearia autenticada
-app.delete('/appointments/:id', (req, res) => {
-    const id = parseInt(req.params.id);
-    // ALTERAÇÃO MULTI-TENANT: Adiciona o barbearia_id no WHERE
-    db.run('DELETE FROM appointments WHERE id = ? AND barbearia_id = ?', [id, req.barbearia_id], function(err) {
-        if (err) return res.status(500).json({ error: err.message });
-        if (this.changes === 0) return res.status(404).json({ error: 'Agendamento não encontrado ou não pertence a esta barbearia.' });
-        res.json({ message: 'Agendamento removido com sucesso.' });
+      db.run(`INSERT INTO appointments (barber_id, cliente_nome, cliente_numero, data_hora, barbearia_id) VALUES (?, ?, ?, ?, ?)`,
+        [barber_id, cliente_nome, cliente_numero, data_hora, req.barbearia_id],
+        function (err) {
+          if (err) return res.status(500).json({ error: err.message });
+          res.status(201).json({ id: this.lastID });
+        });
     });
 });
 
-// ==============================
-// ROTAS - CONFIGURAÇÕES (PROTEGIDAS)
-// ==============================
+app.put('/appointments/:id', (req, res) => {
+  const { barber_id, cliente_nome, cliente_numero, data_hora, status, lembrete_enviado } = req.body;
+  const id = parseInt(req.params.id);
 
-// Buscar configurações APENAS da barbearia autenticada
+  db.run(`UPDATE appointments SET barber_id = ?, cliente_nome = ?, cliente_numero = ?, data_hora = ?, status = ?, lembrete_enviado = ? WHERE id = ? AND barbearia_id = ?`,
+    [barber_id, cliente_nome, cliente_numero, data_hora, status || 'confirmado', lembrete_enviado ? 1 : 0, id, req.barbearia_id],
+    function (err) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (this.changes === 0) return res.status(404).json({ error: 'Agendamento não encontrado.' });
+      res.json({ message: 'Atualizado com sucesso.' });
+    });
+});
+
+app.delete('/appointments/:id', (req, res) => {
+  const id = parseInt(req.params.id);
+  db.run('DELETE FROM appointments WHERE id = ? AND barbearia_id = ?', [id, req.barbearia_id], function (err) {
+    if (err) return res.status(500).json({ error: err.message });
+    if (this.changes === 0) return res.status(404).json({ error: 'Agendamento não encontrado.' });
+    res.json({ message: 'Removido com sucesso.' });
+  });
+});
 app.get('/config', (req, res) => {
-  // ALTERAÇÃO MULTI-TENANT: Rota e lógica modificadas
   db.all('SELECT chave, valor FROM config WHERE barbearia_id = ?', [req.barbearia_id], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
     const config = {};
@@ -201,22 +163,17 @@ app.get('/config', (req, res) => {
   });
 });
 
-// Criar ou atualizar uma configuração PARA a barbearia autenticada
 app.post('/config', (req, res) => {
-    // ALTERAÇÃO MULTI-TENANT: Rota e lógica modificadas
-    const { chave, valor } = req.body;
-    if (!chave) return res.status(400).json({ error: 'O campo "chave" é obrigatório.' });
+  const { chave, valor } = req.body;
+  if (!chave) return res.status(400).json({ error: 'Chave obrigatória.' });
 
-    // REPLACE faz um INSERT ou, se a chave primária (barbearia_id, chave) já existir, faz um UPDATE.
-    db.run('REPLACE INTO config (barbearia_id, chave, valor) VALUES (?, ?, ?)', [req.barbearia_id, chave, valor], (err) => {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ message: `Configuração "${chave}" salva com sucesso.` });
+  db.run('REPLACE INTO config (barbearia_id, chave, valor) VALUES (?, ?, ?)',
+    [req.barbearia_id, chave, valor],
+    function (err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ message: `Configuração "${chave}" salva.` });
     });
 });
-
-// ==============================
-// INICIAR SERVIDOR
-// ==============================
 app.listen(port, () => {
-  console.log(`🌐 Servidor rodando em http://localhost:${port}`);
+  console.log(`🌐 API rodando em http://localhost:${port}`);
 });
