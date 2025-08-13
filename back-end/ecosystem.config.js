@@ -34,7 +34,7 @@ module.exports = {
 
     {
       name: 'chatbot-barbearia-y',
-      script: 'chatbot.login.js',
+      script: 'chatbot.js',
       instances: 1,
       autorestart: true,
       watch: false,

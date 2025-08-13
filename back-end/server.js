@@ -2,17 +2,17 @@ const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
 const path = require('path');
-const bodyParser = require('body-parser');
+// const bodyParser = require('body-parser');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 
 const app = express();
-const port = 3000;
+const port = process.env.API_PORT || 3000;
 const SECRET = 'chave-secreta-segura'; // Substituir por variável de ambiente em produção
 
 app.use(cors());
-app.use(bodyParser.json());
+app.use(express.json());
 
 const dbPath = path.join(__dirname, 'db', 'barbearia.db');
 const db = new sqlite3.Database(dbPath, (err) => {
