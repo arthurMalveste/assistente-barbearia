@@ -83,6 +83,7 @@ body {
   justify-content: center;
   align-items: center;
   animation: fadeInModal 0.3s ease forwards;
+  
 }
 
 @keyframes fadeInModal {

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Horários da Barbearia</title>
+  <link rel="stylesheet" href="css/barber.css" />
+  <style>
+    .grid { display: grid; grid-template-columns: 140px 120px 120px 140px 100px; gap: 8px; align-items: center; }
+    .card { margin-top: 16px; }
+    .row { padding: 6px 0; border-bottom: 1px solid #eee; }
+    .row:last-child { border-bottom: none; }
+    .muted { color:#666; font-size:.9rem }
+    .right { text-align: right; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🕒 Horários por Dia</h1>
+      <nav class="tabs">
+        
+        <button class="active">Horários</button>
+      </nav>
+    </header>
+
+    <main>
+      <div class="card">
+        <p class="muted">Defina os horários de funcionamento e o intervalo dos atendimentos para cada dia. Deixe em branco para marcar o dia como fechado.</p>
+        <div class="grid row" style="font-weight:600">
+          <div>Dia</div><div>Abertura</div><div>Fechamento</div><div>Intervalo (min)</div><div class="right">—</div>
+        </div>
+
+        <form id="horariosForm">
+          <!-- linhas geradas via JS -->
+        </form>
+
+        <div style="margin-top:16px">
+          <button id="saveBtn">Salvar horários</button>
+          <span id="msg" class="muted" style="margin-left:8px"></span>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="js/horarios.js"></script>
+</body>
+</html>

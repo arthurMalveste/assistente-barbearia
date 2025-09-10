@@ -1,31 +1,34 @@
-// script-get-key.js
-const axios = require('axios');
+const bcrypt = require('bcrypt');
+const sqlite3 = require('sqlite3').verbose();
+const path = require('path');
 
-// Nome da barbearia que você quer criar
-const nomeBarbearia = "Barbearia Cliente 5";
+const masterDbPath = path.join(__dirname, 'db', 'master.db');
+const db = new sqlite3.Database(masterDbPath);
 
-async function createBarbeariaAndGetApiKey() {
+(async () => {
+    const nome = 'gabriel';
+    const email = 'gabriel@gmail.com';
+    const senha = 'barbearia'; // Troque para a senha desejada
+    const barbeariaId = 2; // ID da barbearia vinculada a esse usuário
+
     try {
-        console.log(`🚀 Tentando criar a barbearia: "${nomeBarbearia}"...`);
-        const response = await axios.post('http://localhost:3000/barbearias', {
-            nome_barbearia: nomeBarbearia
+        const hash = await bcrypt.hash(senha, 10);
+
+        db.run(`
+            INSERT INTO usuarios (barbearia_id, nome, email, senha_hash)
+            VALUES (?, ?, ?, ?)
+        `, [barbeariaId, nome, email, hash], function(err) {
+            if (err) {
+                console.error('❌ Erro ao criar usuário:', err.message);
+            } else {
+                console.log(`✅ Usuário criado com sucesso! ID: ${this.lastID}`);
+                console.log(`📧 Email: ${email}`);
+                console.log(`🔑 Senha: ${senha}`);
+            }
+            db.close();
         });
-
-        const { id, api_key } = response.data;
-
-        console.log('\n✅ Barbearia criada com sucesso!');
-        console.log(` - ID: ${id}`);
-        console.log(` - Nome: ${nomeBarbearia}`);
-        console.log(` - API Key gerada: ${api_key}\n`);
-        console.log(`⚠️ Agora, copie a chave acima e cole-a no seu arquivo ecosystem.config.js.`);
-
-    } catch (error) {
-        if (error.response) {
-            console.error('❌ Erro da API:', error.response.data);
-        } else {
-            console.error('❌ Erro inesperado:', error.message);
-        }
+    } catch (err) {
+        console.error('Erro ao gerar hash da senha:', err);
+        db.close();
     }
-}
-
-createBarbeariaAndGetApiKey();
+})();

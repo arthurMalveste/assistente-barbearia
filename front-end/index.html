@@ -5,12 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sistema da Barbearia</title>
     <link rel="stylesheet" href="css/style.css">
+    <script>
+        // Verifica se a chave API está no armazenamento local ao carregar a página
+        if (!localStorage.getItem('apiKey')) {
+            window.location.href = 'login.html';
+        }
+
+        function loadPage(page) {
+            document.getElementById('content').src = page;
+        }
+    </script>
 </head>
 <body>
     <nav>
         <a href="#" onclick="loadPage('qrcode.html')">📷 QR Code</a>
         <a href="#" onclick="loadPage('calendar.html')">📅 Calendário</a>
         <a href="#" onclick="loadPage('barbers.html')">💈 Gerenciar Barbeiros</a>
+        <a href="#" onclick="loadPage('horarios.html')">🕒 Horários</a>
     </nav>
     <iframe id="content" src="calendar.html"></iframe>
     <script>

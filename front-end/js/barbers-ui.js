@@ -1,11 +1,15 @@
 // ======================================================
-// barbers-ui.js - VERSÃO CORRIGIDA E FINAL
+// barbers-ui.js - VERSÃO ATUALIZADA
 // ======================================================
 
 // --- Constantes de Configuração ---
-// Chave da "Barbearia Cliente 2" para testes.
-const apiKey = 'e657e3a2-c73c-407c-a8f9-5c7ca0be252e';
+const apiKey = localStorage.getItem('apiKey');
 const BASE_URL = 'http://localhost:3000';
+
+if (!apiKey) {
+    console.error('Chave API não encontrada. Redirecionando para o login.');
+    window.location.href = 'login.html';
+}
 
 // --- Elementos do DOM ---
 const barberForm = document.getElementById('barberForm');
@@ -24,63 +28,60 @@ const closeEditModalBtn = document.getElementById('closeEditModal');
 function showFeedback(element, text, isError = false) {
     element.textContent = text;
     element.style.color = isError ? '#EF4444' : '#10B981';
-    setTimeout(() => { element.textContent = ''; }, 5000);
+    setTimeout(() => {
+        element.textContent = '';
+    }, 5000);
 }
 
 function openEditModal(id, nomeAtual, telefoneAtual) {
-    if (editBarberModal && editBarberId && editBarberName && editBarberPhone) {
+    if (editBarberId && editBarberName && editBarberPhone && editBarberModal) {
         editBarberId.value = id;
         editBarberName.value = nomeAtual;
-        editBarberPhone.value = telefoneAtual || ''; // Garante que não seja 'undefined'
+        editBarberPhone.value = telefoneAtual;
         editBarberModal.style.display = 'block';
     }
 }
+window.openEditModal = openEditModal; // Torna a função acessível globalmente
 
-// --- Funções de API ---
-
-// Carrega a lista de barbeiros
+// --- Funções de Lógica ---
 async function loadBarbers() {
-    if (!barbersListContainer) return;
-    barbersListContainer.innerHTML = 'Carregando...';
     try {
         const res = await fetch(`${BASE_URL}/barbers`, {
             headers: { 'X-API-Key': apiKey }
         });
-
         if (!res.ok) {
             const error = await res.json();
-            throw new Error(error.error || 'Falha ao carregar barbeiros.');
+            throw new Error(error.error);
         }
-
         const barbers = await res.json();
+        barbersListContainer.innerHTML = '';
         if (barbers.length === 0) {
-            barbersListContainer.innerHTML = '<p>Nenhum barbeiro cadastrado para esta barbearia.</p>';
-            return;
+            barbersListContainer.innerHTML = '<p class="text-gray-500">Nenhum barbeiro cadastrado.</p>';
+        } else {
+            barbers.forEach(barber => {
+                const barberCard = document.createElement('div');
+                barberCard.className = 'barber-card';
+                barberCard.innerHTML = `
+                    <p class="font-semibold text-lg">${barber.nome}</p>
+                    <p class="text-gray-600">${barber.telefone || 'N/A'}</p>
+                    <div class="actions">
+                        <button onclick="openEditModal(${barber.id}, '${barber.nome}', '${barber.telefone}')" class="edit-btn">✏️ Editar</button>
+                        <button onclick="deleteBarber(${barber.id})" class="delete-btn">🗑️ Excluir</button>
+                    </div>
+                `;
+                barbersListContainer.appendChild(barberCard);
+            });
         }
-
-        barbersListContainer.innerHTML = barbers.map(barber => `
-            <div class="card barber-card">
-                <div>
-                    <h4>${barber.nome}</h4>
-                    <p>${barber.telefone || 'Telefone não cadastrado'}</p>
-                </div>
-                <div class="card-actions">
-                    <button class="edit-btn" onclick="openEditModal('${barber.id}', '${barber.nome}', '${barber.telefone}')">✏️ Editar</button>
-                    <button class="delete-btn" onclick="deleteBarber('${barber.id}')">🗑️ Excluir</button>
-                </div>
-            </div>
-        `).join('');
     } catch (err) {
         showFeedback(message, `❌ Erro ao carregar barbeiros: ${err.message}`, true);
         console.error(err);
     }
 }
 
-// Adiciona um novo barbeiro
 async function handleAddBarber(e) {
     e.preventDefault();
-    const nome = document.getElementById('nome').value;
-    const telefone = document.getElementById('telefone').value;
+    const nome = e.target.nome.value;
+    const telefone = e.target.telefone.value;
 
     try {
         const res = await fetch(`${BASE_URL}/barbers`, {
@@ -93,12 +94,12 @@ async function handleAddBarber(e) {
         });
 
         if (res.ok) {
-            showFeedback(message, '✅ Barbeiro cadastrado com sucesso!');
+            showFeedback(message, '✅ Barbeiro adicionado com sucesso!');
             barberForm.reset();
             loadBarbers();
         } else {
             const error = await res.json();
-            showFeedback(message, `❌ Erro ao cadastrar barbeiro: ${error.error}`, true);
+            showFeedback(message, `❌ Erro ao adicionar barbeiro: ${error.error}`, true);
         }
     } catch (err) {
         showFeedback(message, '❌ Erro ao conectar com o servidor.', true);
@@ -106,7 +107,6 @@ async function handleAddBarber(e) {
     }
 }
 
-// Edita um barbeiro existente
 async function handleEditBarber(e) {
     e.preventDefault();
     const id = editBarberId.value;
@@ -137,7 +137,6 @@ async function handleEditBarber(e) {
     }
 }
 
-// Exclui um barbeiro
 async function deleteBarber(id) {
     if (!window.confirm('Tem certeza que deseja excluir este barbeiro?')) {
         return;
@@ -160,30 +159,42 @@ async function deleteBarber(id) {
         console.error(err);
     }
 }
-window.deleteBarber = deleteBarber; // Expondo a função para o escopo global para o onclick funcionar
+window.deleteBarber = deleteBarber;
 
-// Carrega informações da barbearia
+// Função para carregar as informações da barbearia
 async function loadInfo() {
-    if (!infoForm) return;
     try {
         const res = await fetch(`${BASE_URL}/config`, {
             headers: { 'X-API-Key': apiKey }
         });
-        const data = await res.json();
-        document.getElementById('endereco').value = data.endereco || '';
-        document.getElementById('sobre').value = data.descricao || '';
+        if (!res.ok) {
+            const error = await res.json();
+            throw new Error(error.error);
+        }
+        const config = await res.json();
+        document.getElementById('nome').value = config.nome || '';
+        document.getElementById('endereco').value = config.endereco || '';
+        document.getElementById('sobre').value = config.descricao || '';
     } catch (err) {
-        showFeedback(infoMessage, '❌ Erro ao carregar informações.', true);
+        showFeedback(infoMessage, `❌ Erro ao carregar informações: ${err.message}`, true);
         console.error(err);
     }
 }
 
-// Salva as configurações
+// Função para salvar as informações da barbearia
 async function handleSaveInfo(e) {
     e.preventDefault();
-    const descricao = document.getElementById('sobre').value;
+    const nome = document.getElementById('nome').value;
     const endereco = document.getElementById('endereco').value;
+    const descricao = document.getElementById('sobre').value;
+
     try {
+        // Envia as informações em requisições separadas
+        await fetch(`${BASE_URL}/config`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+            body: JSON.stringify({ chave: 'nome', valor: nome })
+        });
         await fetch(`${BASE_URL}/config`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
@@ -201,13 +212,11 @@ async function handleSaveInfo(e) {
     }
 }
 
-// --- Inicialização e Event Listeners (VERSÃO CORRIGIDA) ---
+// --- Inicialização e Event Listeners ---
 document.addEventListener('DOMContentLoaded', () => {
-    // Carrega os dados iniciais ao carregar a página
     loadBarbers();
     loadInfo();
 
-    // Adiciona o evento para fechar o modal
     if (closeEditModalBtn) {
         closeEditModalBtn.addEventListener('click', () => {
             if (editBarberModal) {
@@ -216,7 +225,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Adiciona os eventos de submit para os formulários
     if (barberForm) {
         barberForm.addEventListener('submit', handleAddBarber);
     }

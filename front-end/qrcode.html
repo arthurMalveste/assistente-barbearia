@@ -14,28 +14,37 @@
 </head>
 <body class="flex items-center justify-center min-h-screen">
     <div id="qrcode-container" class="container w-full max-w-sm p-6 bg-white rounded-lg shadow-md text-center">
-        <!-- O conteúdo do status será injetado aqui -->
         <div class="flex flex-col items-center justify-center p-6 space-y-4">
             <i class="fas fa-spinner fa-spin text-4xl text-blue-500"></i>
             <h1 class="text-xl font-bold text-gray-800">Carregando status...</h1>
         </div>
     </div>
-
+        
     <script>
         const qrcodeContainer = document.getElementById('qrcode-container');
+        const API_KEY = localStorage.getItem('apiKey'); // Pega a chave de API salva no localStorage
+
+        // Redireciona para o login se a chave não estiver presente
+        if (!API_KEY) {
+            window.location.href = 'login.html';
+        }
 
         async function fetchAndUpdateQRCode() {
             try {
-                // A URL para o endpoint do seu bot.
-                // Certifique-se de que o servidor do bot (chatbot.js) está rodando.
-                const response = await fetch('http://localhost:3006/qrcode');
+                // Requisição para a nova rota proxy no servidor principal (porta 3000)
+                const response = await fetch('http://localhost:3000/chatbot/qrcode', {
+                    headers: {
+                        'X-API-Key': API_KEY // Envia a chave de API para autenticação
+                    }
+                });
                 
                 if (!response.ok) {
-                    throw new Error('Erro ao buscar o status do bot.');
+                    // Se a resposta não for 2xx, o servidor proxy retornará um erro
+                    const error = await response.json();
+                    throw new Error(error.error || 'Erro ao buscar o status do bot.');
                 }
 
                 const data = await response.json();
-                
                 let contentHtml = '';
 
                 switch (data.status) {
@@ -57,7 +66,6 @@
                         `;
                         break;
                     case 'disconnected':
-                        // Mudança aqui: Em vez de mostrar um erro, mostra um estado de espera.
                         contentHtml = `
                             <i class="fas fa-sync-alt fa-spin text-4xl text-yellow-500 mb-4"></i>
                             <h1 class="text-2xl font-bold text-yellow-600">Reconectando...</h1>
@@ -80,11 +88,11 @@
                 qrcodeContainer.innerHTML = `
                     <h1 class="text-2xl font-bold text-red-600">Erro de Conexão</h1>
                     <p class="mt-2 text-gray-700">O servidor do chatbot parece estar offline ou inacessível.</p>
-                    <p class="mt-2 text-sm text-gray-500">Verifique se o <code class="bg-gray-200 p-1 rounded">chatbot.js</code> está em execução e se a porta <code class="bg-gray-200 p-1 rounded">3005</code> está correta.</p>
+                    <p class="mt-2 text-sm text-gray-500">Verifique se o <code class="bg-gray-200 p-1 rounded">chatbot.js</code> está em execução para esta barbearia e se a porta está configurada corretamente.</p>
                 `;
             }
         }
-
+        
         // Atualiza a página a cada 5 segundos para refletir o status da conexão
         fetchAndUpdateQRCode();
         setInterval(fetchAndUpdateQRCode, 5000);
