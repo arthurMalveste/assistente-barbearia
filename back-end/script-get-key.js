@@ -6,10 +6,10 @@ const masterDbPath = path.join(__dirname, 'db', 'master.db');
 const db = new sqlite3.Database(masterDbPath);
 
 (async () => {
-    const nome = 'gabriel';
-    const email = 'gabriel@gmail.com';
+    const nome = 'Arthur';
+    const email = 'arthur@gmail.com';
     const senha = 'barbearia'; // Troque para a senha desejada
-    const barbeariaId = 2; // ID da barbearia vinculada a esse usuário
+    const barbeariaId = 1; // ID da barbearia vinculada a esse usuário
 
     try {
         const hash = await bcrypt.hash(senha, 10);

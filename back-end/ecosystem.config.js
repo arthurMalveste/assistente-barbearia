@@ -18,7 +18,7 @@ module.exports = {
     },
 
     {
-  name: 'barbearia joao',
+  name: 'barbearia do arthur',
   script: 'chatbot.js',
   instances: 1,
   autorestart: true,
@@ -26,32 +26,15 @@ module.exports = {
   max_memory_restart: '300M',
   env: {
     NODE_ENV: 'production',
-    API_KEY: 'f85531c5-7c6a-4c5a-9959-7a76b60a5c09',
+    API_KEY: '6e5c012e-5591-4caa-b9d8-6b18afc9e98d',
     BARBEARIA_ID: '1', // ID da barbearia
-    AUTH_INFO_PATH: 'baileys_auth_info_barbearia_joao',
+    AUTH_INFO_PATH: 'baileys_auth_info_barbearia_arthur',
     PORT: 3005
   }
 },
 
-{
-  name: 'barbearia gabriel',
-  script: 'chatbot.js',
-  instances: 1,
-  autorestart: true,
-  watch: false,
-  max_memory_restart: '300M',
-  env: {
-    NODE_ENV: 'production',
-    API_KEY: '8a687d50-6bd5-4102-a7f7-d83ec3ddad2b',
-    BARBEARIA_ID: '2', // ID da barbearia
-    AUTH_INFO_PATH: 'baileys_auth_info_barbearia_gabriel',
-    PORT: 3006
-  }
-},
 
-
-
-  ]
+]
 };
 
 
