@@ -1,5 +1,5 @@
 /* ======================================================
-   calendar.css - Visual limpo e legível
+   calendar.css - v3 (Revisão Geral e Correção Final)
    ====================================================== */
 
 :root{
@@ -10,7 +10,6 @@
   --primary: #2563eb;
   --primary-600:#1d4ed8;
   --border:#e5e7eb;
-  --event-bg:#3b82f6;
   --event-text:#fff;
 }
 
@@ -37,37 +36,27 @@ body {
   font-size: 24px;
 }
 
-.filter-container {
-  margin: 0 0 16px;
-  text-align: center;
-  font-size: 15px;
-}
+.filter-container { margin: 0 0 16px; text-align: center; font-size: 15px; }
 .filter-container label { margin-right: 8px; color: var(--muted); font-weight: 600; }
 .filter-container select {
-  padding: 8px 12px;
-  font-size: 15px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: #fff;
+  padding: 8px 12px; font-size: 15px; border: 1px solid var(--border);
+  border-radius: 10px; background: #fff;
 }
 .filter-container select:focus{ outline: 2px solid rgba(37,99,235,.2); }
 
-/* ===== FullCalendar – variáveis e base ===== */
+/* ===== FullCalendar – base ===== */
 .fc {
   --fc-border-color: var(--border);
   --fc-now-indicator-color: #ef4444;
   --fc-page-bg-color: transparent;
   --fc-neutral-bg-color: #fafafa;
-  --fc-today-bg-color: #fff7ed;            /* destaque leve do dia */
-  --fc-event-bg-color: var(--event-bg);
+  --fc-today-bg-color: #fff7ed;
   --fc-event-border-color: transparent;
-  --fc-event-text-color: var(--event-text);
   --fc-button-bg-color: var(--primary);
   --fc-button-border-color: var(--primary);
   --fc-button-hover-bg-color: var(--primary-600);
   --fc-button-hover-border-color: var(--primary-600);
   --fc-button-text-color: #fff;
-  --fc-slot-min-height: 38px;              /* será sobrescrito dinamicamente pelo JS */
 }
 
 .fc .fc-toolbar-title{ font-size: 20px; font-weight: 800; }
@@ -79,22 +68,26 @@ body {
   border-radius: 10px;
   box-shadow: 0 3px 10px rgba(15, 23, 42, .18);
   padding: 4px 8px;
+  color: var(--event-text);
+  /* A linha 'align-self: flex-start;' foi REMOVIDA daqui pois era a causa do erro de altura. */
 }
 
-/* Conteúdo compacto e legível */
-.fc-event-compact .ev-row{ display:flex; align-items:center; gap:8px; }
-.fc-event-compact .ev-badge{
-  background:#fff; color:#1e3a8a; font-weight:800;
-  padding:2px 6px; border-radius:6px; line-height:1; white-space:nowrap;
+/* NOVA REGRA para estilizar o conteúdo padrão do FullCalendar */
+.fc-event-main-wrapper {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
 }
-.fc-event-compact .ev-text{ line-height:1.15; }
-.fc-event-compact .ev-client{ font-size:13px; font-weight:800; }
-.fc-event-compact .ev-barber{ font-size:12px; opacity:.95; }
+.fc-event-time {
+  font-weight: 800;
+  font-size: 13px;
+}
+.fc-event-title {
+  font-weight: 500;
+  font-size: 13.5px;
+  white-space: normal; /* Permite quebra de linha no título */
+}
 
-.fc-event-compact .ev-month{ font-size:12.5px; line-height:1.2; }
-
-/* Melhor respiro quando vários no mesmo horário */
-.fc-timegrid-col .fc-timegrid-event-harness { margin-bottom: 6px; }
 
 .fc .fc-timegrid-event:hover,
 .fc .fc-daygrid-event:hover { filter: brightness(.95); }
@@ -104,64 +97,84 @@ body {
 
 /* ===== Modal ===== */
 .modal {
-  display: none;
-  position: fixed; inset: 0;
-  z-index: 1000;
-  background: rgba(15,23,42,0.35);
-  justify-content: center; align-items: center;
+  display: none; position: fixed; inset: 0; z-index: 1000;
+  background: rgba(15,23,42,0.35); justify-content: center; align-items: center;
 }
 .modal-content {
-  background: var(--card);
-  padding: 22px;
-  border-radius: 14px;
-  width: 92%; max-width: 440px;
-  box-shadow: 0 20px 40px rgba(2,6,23,0.18);
-  position: relative; text-align: center;
+  background: var(--card); padding: 22px; border-radius: 14px;
+  width: 92%; max-width: 440px; box-shadow: 0 20px 40px rgba(2,6,23,0.18);
+  position: relative; text-align: left;
 }
-.close-btn {
-  position: absolute; top: 10px; right: 14px;
-  font-size: 22px; color: var(--muted); cursor: pointer;
-}
+.close-btn { position: absolute; top: 10px; right: 14px; font-size: 22px; color: var(--muted); cursor: pointer; }
+.modal-content h3 { text-align: center; margin-top: 0; }
+
 #cancelBtn {
-  margin-top: 18px;
-  background: #ef4444; color: #fff;
-  border: none; padding: 10px 14px; border-radius: 10px;
-  font-weight: 700; cursor: pointer;
+  margin-top: 18px; background: #ef4444; color: #fff; border: none;
+  padding: 10px 14px; border-radius: 10px; font-weight: 700; cursor: pointer;
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
 }
 #cancelBtn:hover { filter: brightness(.95); }
 
 /* ===== Form no modal ===== */
-label { font-weight: 700; margin-top: 10px; display: block; color: var(--text); }
+form#appointmentForm {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+label { font-weight: 700; display: block; color: var(--text); font-size: 14px; }
 input, select {
   width: 100%; padding: 10px 12px; border-radius: 10px;
-  border: 1px solid var(--border); font-size: 15px;
+  border: 1px solid var(--border); font-size: 15px; box-sizing: border-box;
 }
 button[type="submit"]{
-  margin-top: 18px; padding: 10px 14px; border-radius: 10px;
+  margin-top: 12px; padding: 12px 16px; border-radius: 10px;
   background: var(--primary); border: none; color: #fff; font-weight: 800;
+  cursor: pointer;
 }
 button[type="submit"]:hover{ background: var(--primary-600); }
 
-/* tira o padding do topo (fica colado na linha do horário) */
-.fc .fc-timegrid-event { padding-top: 0 !important; }
-
-/* altura mínima do slot vem do JS via --fc-slot-min-height */
-.fc .fc-timegrid-slot { min-height: var(--fc-slot-min-height, 34px); }
-
-/* componentes do conteúdo (iguais aos que já usamos) */
-.fc-event-compact .ev-row{ display:flex; align-items:center; gap:8px; }
-.fc-event-compact .ev-badge{
-  background:#fff; color:#1e3a8a; font-weight:800;
-  padding:2px 6px; border-radius:6px; line-height:1; white-space:nowrap;
+/* Estilo opcional para eventos agrupados */
+.fc-event-group {
+  opacity: 0.9;
+  filter: saturate(0.8);
 }
-.fc-event-compact .ev-text{ line-height:1.15; }
-.fc-event-compact .ev-client{ font-size:13px; font-weight:800; }
-.fc-event-compact .ev-barber{ font-size:12px; opacity:.95; }
 
-/* visão do mês (curto) */
-.ev-month{ font-size:12.5px; line-height:1.2; }
-.fc-daygrid-event-dot { display:none; }
+/* ===== Estilos para Modal de Grupo ===== */
+.appointment-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0 0;
+}
 
-/* quando o intervalo é ≤30m, deixo tudo mais compacto */
-#calendar.compact-30 .fc-event-compact .ev-client { font-size:12px; }
-#calendar.compact-30 .fc-event-compact .ev-badge { font-size:12px; padding:1px 6px; }
+.appointment-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.appointment-list li:last-child {
+  border-bottom: none;
+}
+
+.appointment-list li span {
+  margin-right: 16px;
+}
+
+.cancel-single-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+  flex-shrink: 0;
+}
+
+.cancel-single-btn:hover {
+  opacity: 1;
+}

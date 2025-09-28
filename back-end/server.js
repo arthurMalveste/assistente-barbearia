@@ -529,6 +529,14 @@ app.get('/horarios/disponiveis', authenticate, (req, res) => {
 });
 
 
+app.get('/health', (_req, res) => {
+  res.json({ status: 'ok' });
+});
+
 app.listen(PORT, () => {
-    console.log(`🚀 Servidor rodando na porta ${PORT}`);
+  console.log(`🚀 Servidor rodando na porta ${PORT}`);
+  // Sinaliza para o PM2 que a app está pronta (quando wait_ready estiver ativo)
+  if (process.send) {
+    process.send('ready');
+  }
 });
