@@ -50,75 +50,91 @@ document.addEventListener('DOMContentLoaded', async function () {
   // FUNÇÃO ATUALIZADA: Agora ela cria um título mais completo para o
   // FullCalendar renderizar nativamente, sem precisar da 'eventContent'.
   // ===================================================================
-  function createEvents(list) {
-    if (!Array.isArray(list)) {
-      console.error('Erro Crítico: A resposta da API de agendamentos não é uma lista (array). Valor recebido:', list);
-      return [];
-    }
-  
-    const groupedByTime = list.reduce((acc, appt) => {
-      if (!appt || !appt.data_hora) return acc;
-      const key = appt.data_hora;
-      if (!acc[key]) acc[key] = [];
-      acc[key].push(appt);
-      return acc;
-    }, {});
-  
-    const finalEvents = Object.values(groupedByTime).flatMap((group) => {
-      const firstAppt = group[0];
-      const start = new Date(firstAppt.data_hora);
-  
-      const isoDate = firstAppt.data_hora.substring(0, 10);
-      const daySchedule = getDaySchedule(isoDate);
-      const appointmentDuration = daySchedule.interval;
-      const end = addMinutes(start, appointmentDuration);
-  
-      if (group.length === 1) {
-        const barberName = barberMap[firstAppt.barber_id]?.nome || 'Barbeiro';
-        return [{
-          id: firstAppt.id,
-          // O título agora inclui o nome do barbeiro. O FullCalendar mostrará a hora por padrão.
-          title: `${firstAppt.cliente_nome}\n— ${barberName}`,
-          start: firstAppt.data_hora,
-          end: end.toISOString(),
+//
+// SUBSTITUA A SUA FUNÇÃO 'createEvents' POR ESTA:
+//
+function createEvents(list, viewType) { // A MUDANÇA: A função agora recebe o 'viewType'
+  if (!Array.isArray(list)) {
+    console.error('Erro Crítico: A resposta da API de agendamentos não é uma lista (array). Valor recebido:', list);
+    return [];
+  }
+
+  const groupedByTime = list.reduce((acc, appt) => {
+    if (!appt || !appt.data_hora) return acc;
+    const key = appt.data_hora;
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(appt);
+    return acc;
+  }, {});
+
+  const finalEvents = Object.values(groupedByTime).flatMap((group) => {
+    const firstAppt = group[0];
+    const start = new Date(firstAppt.data_hora);
+
+    const isoDate = firstAppt.data_hora.substring(0, 10);
+    const daySchedule = getDaySchedule(isoDate);
+    const appointmentDuration = daySchedule.interval;
+    const end = addMinutes(start, appointmentDuration);
+
+    // ===================== LÓGICA CONDICIONAL =====================
+    // A MUDANÇA: Agrupar somente na visão de semana ('timeGridWeek') e se houver mais de um evento.
+    if (viewType === 'timeGridWeek' && group.length > 1) {
+      // Lógica de agrupamento que já tínhamos (para a visão de SEMANA)
+      return [{
+        id: `group-${firstAppt.data_hora}`,
+        title: `${group.length} Agendamentos`,
+        start: firstAppt.data_hora,
+        end: end.toISOString(),
+        allDay: false,
+        extendedProps: {
+          isGroup: true,
+          originalEvents: group.map((appt) => ({
+            ...appt,
+            barberName: barberMap[appt.barber_id]?.nome || 'Barbeiro',
+          })),
+        },
+      }];
+    } else {
+      // Lógica individual (para a visão de DIA e outras)
+      // Retorna um card para cada agendamento, lado a lado.
+      return group.map(appt => {
+        const barberName = barberMap[appt.barber_id]?.nome || 'Barbeiro';
+        return {
+          id: appt.id,
+          title: `${appt.cliente_nome}\n— ${barberName}`,
+          start: appt.data_hora,
+          end: end.toISOString(), // A duração é a mesma para todos no grupo
           allDay: false,
           extendedProps: {
             isGroup: false,
-            barberId: firstAppt.barber_id,
+            barberId: appt.barber_id,
             barberName: barberName,
-            clientNumber: firstAppt.cliente_numero,
+            clientNumber: appt.cliente_numero,
           },
-        }];
-      } else {
-        return [{
-          id: `group-${firstAppt.data_hora}`,
-          title: `${group.length} Agendamentos`,
-          start: firstAppt.data_hora,
-          end: end.toISOString(),
-          allDay: false,
-          extendedProps: {
-            isGroup: true,
-            originalEvents: group.map((appt) => ({
-              ...appt,
-              barberName: barberMap[appt.barber_id]?.nome || 'Barbeiro',
-            })),
-          },
-        }];
-      }
-    });
-    return finalEvents;
-  }
-  
-  async function eventsFetcher(fetchInfo, successCallback, failureCallback) {
-    try {
-      const appointments = await fetchAppointments();
-      const events = createEvents(appointments);
-      successCallback(events);
-    } catch (error) {
-      console.error("Erro ao buscar eventos:", error);
-      failureCallback(error);
+        };
+      });
     }
+    // =================================================================
+  });
+  return finalEvents;
+}
+ async function eventsFetcher(fetchInfo, successCallback, failureCallback) {
+  try {
+    const appointments = await fetchAppointments();
+    
+    // ===================== A CORREÇÃO ESTÁ AQUI =====================
+    // Adicionamos '?.' (Optional Chaining) para evitar o erro se 'view' não existir.
+    // E '|| 'timeGridWeek'' para garantir que sempre haverá um valor padrão.
+    const viewType = fetchInfo.view?.type || 'timeGridWeek';
+    const events = createEvents(appointments, viewType);
+    // ===============================================================
+
+    successCallback(events);
+  } catch (error) {
+    console.error("Erro ao buscar eventos:", error);
+    failureCallback(error);
   }
+}
 
   async function applyGridOptions(viewInfo) {
     const viewType = viewInfo?.view?.type || 'timeGridWeek';
