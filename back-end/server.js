@@ -335,6 +335,70 @@ app.get('/barbers', authenticate, (req, res) => {
     });
 });
 
+// Atualizar barbeiro
+app.put('/barbers/:id', authenticate, (req, res) => {
+  const { id } = req.params;
+  const { nome, telefone } = req.body;
+
+  if (!nome) {
+    return res.status(400).json({ error: 'Nome do barbeiro é obrigatório.' });
+  }
+
+  req.db.run(
+    `UPDATE barbers SET nome = ?, telefone = ? WHERE id = ?`,
+    [nome, telefone || null, id],
+    function (err) {
+      if (err) return res.status(500).json({ error: err.message });
+      if (this.changes === 0) return res.status(404).json({ error: 'Barbeiro não encontrado.' });
+      res.json({ message: 'Barbeiro atualizado com sucesso.' });
+    }
+  );
+});
+
+// Excluir barbeiro — bloqueia apenas se houver agendamentos FUTUROS e ATIVOS
+app.delete('/barbers/:id', authenticate, (req, res) => {
+  const { id } = req.params;
+
+  // gera "agora" no formato 'YYYY-MM-DD HH:MM:SS' (mesma ordenação do SQLite)
+  const now = new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
+    .toISOString()
+    .slice(0, 19)
+    .replace('T', ' ');
+
+  // considere "ativos" os status que podem existir no seu fluxo
+  // (mantenha 'agendado' e acrescente outros se você usar: 'confirmado', 'reagendado' etc.)
+  const ativos = ['agendado', 'confirmado', 'reagendado'];
+
+  req.db.get(
+    `
+      SELECT COUNT(*) AS total
+      FROM appointments
+      WHERE barber_id = ?
+        AND data_hora >= ?
+        AND status IN (${ativos.map(() => '?').join(',')})
+    `,
+    [id, now, ...ativos],
+    (err, row) => {
+      if (err) return res.status(500).json({ error: err.message });
+
+      if (row.total > 0) {
+        return res.status(400).json({
+          error: 'Não é possível excluir: existem agendamentos FUTUROS vinculados a este barbeiro.'
+        });
+      }
+
+      // Nenhum compromisso futuro: pode excluir
+      req.db.run(`DELETE FROM barbers WHERE id = ?`, [id], function (delErr) {
+        if (delErr) return res.status(500).json({ error: delErr.message });
+        if (this.changes === 0) return res.status(404).json({ error: 'Barbeiro não encontrado.' });
+        res.json({ message: 'Barbeiro excluído com sucesso.' });
+      });
+    }
+  );
+});
+
+
+
 // -------------------
 // Rotas Agendamentos
 // -------------------

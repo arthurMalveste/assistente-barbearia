@@ -1,17 +1,4 @@
-/*
- * chatbot.js - Versão Consolidada e Corrigida
- * Supervisor: Gemini AI
- * Data da Revisão: 02/08/2025
- *
- * ######################################################################################
- * ##                                                                                  ##
- * ##  Este arquivo combina a lógica de negócio funcional da versão antiga com o       ##
- * ##  sistema de API Key e arquitetura multi-tenant da nova versão.                  ##
- * ##                                                                                  ##
- * ######################################################################################
- */
 
-// --- Módulos Principais ---
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const pino = require('pino');

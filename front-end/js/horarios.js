@@ -26,7 +26,6 @@ function line(dia, v={}) {
     <div><input type="time" name="${dia.key}_abertura" value="${v.horario_abertura||''}"></div>
     <div><input type="time" name="${dia.key}_fechamento" value="${v.horario_fechamento||''}"></div>
     <div><input type="number" min="5" step="5" name="${dia.key}_intervalo" value="${v.intervalo_minutos||30}"></div>
-    <div class="right"><small class="muted">vazio = fechado</small></div>
   `;
   form.appendChild(row);
 }

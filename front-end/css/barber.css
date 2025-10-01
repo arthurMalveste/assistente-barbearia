@@ -158,3 +158,39 @@ button[type="submit"]:hover {
 .close-btn:hover {
     color: #333;
 }
+
+/* ===== Ajustes Horários ===== */
+.grid.row {
+  padding: 4px 0; /* Menos espaçamento entre linhas */
+  padding-right: 20px;
+}
+
+.grid input {
+  padding: 6px 8px;
+  font-size: 0.95rem;
+  border-radius: 6px;
+  border: 1px solid #bbb;
+}
+
+#saveBtn {
+  background-color: #27ae60;
+  border: none;
+  color: #fff;
+  padding: 12px 28px;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 3px 8px rgba(0,0,0,0.15);
+}
+
+#saveBtn:hover {
+  background-color: #219150;
+  transform: translateY(-2px);
+}
+
+#msg {
+  font-size: 0.9rem;
+  font-weight: 500;
+}

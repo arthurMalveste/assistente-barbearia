@@ -6,7 +6,13 @@
   <title>Horários da Barbearia</title>
   <link rel="stylesheet" href="css/barber.css" />
   <style>
-    .grid { display: grid; grid-template-columns: 140px 120px 120px 140px 100px; gap: 8px; align-items: center; }
+.grid {
+  display: grid;
+    padding-right: 30px;
+    grid-template-columns: 60px 1fr 1fr 140px;
+    gap: 50px;
+    align-items: center;
+}
     .card { margin-top: 16px; }
     .row { padding: 6px 0; border-bottom: 1px solid #eee; }
     .row:last-child { border-bottom: none; }
@@ -28,14 +34,18 @@
       <div class="card">
         <p class="muted">Defina os horários de funcionamento e o intervalo dos atendimentos para cada dia. Deixe em branco para marcar o dia como fechado.</p>
         <div class="grid row" style="font-weight:600">
-          <div>Dia</div><div>Abertura</div><div>Fechamento</div><div>Intervalo (min)</div><div class="right">—</div>
+          <div>Dia</div>
+          <div>Abertura</div>
+          <div>Fechamento</div>
+          <div>Intervalo (min)</div>
         </div>
+
 
         <form id="horariosForm">
           <!-- linhas geradas via JS -->
         </form>
 
-        <div style="margin-top:16px">
+        <div>
           <button id="saveBtn">Salvar horários</button>
           <span id="msg" class="muted" style="margin-left:8px"></span>
         </div>
